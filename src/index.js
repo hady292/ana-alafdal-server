@@ -14,6 +14,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "ana_alafdal_dev_secret_change_late
 const app = express();
 
 app.get("/", (req, res) => res.status(200).send("ANA_ALAFDAL_SERVER_OK"));
+app.get("/health", (req, res) => res.status(200).send("ANA_ALAFDAL_SERVER_OK"));
 app.use(cors());
 app.use(express.json());
 
