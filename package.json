@@ -1,0 +1,19 @@
+{
+  "name": "ana-alafdal-server",
+  "version": "1.0.0",
+  "description": "Backend server for Ana Alafdal game app",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "chess.js": "^1.0.0-beta.8",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.7.5",
+    "uuid": "^9.0.1"
+  }
+}
