@@ -263,7 +263,7 @@ app.post("/auth/register", async (req, res) => {
   const deviceRecord = db.devices[deviceId] || { userIds: [], createdAt: new Date().toISOString() };
   const activeDeviceUsers = (deviceRecord.userIds || []).filter((id) => db.users.some((u) => u.id === id));
   // V138_EMAIL_OPTIONAL_TEST: حد الجهاز معطل مؤقتًا للفحص فقط
-  if (false && activeDeviceUsers.length >= 3) {
+  if (activeDeviceUsers.length >= 3) {
     return res.status(429).json({ error: "DEVICE_ACCOUNT_LIMIT" });
   }
   const exists = db.users.find(
