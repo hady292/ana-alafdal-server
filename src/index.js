@@ -234,31 +234,6 @@ app.get("/", (req, res) => {
   });
 });
 
-
-// TEMP_HADY2_100M_OWNER_ONLY: مؤقت جدًا لرفع رصيد حساب hady2 فقط على Render، ثم نحذفه بعد نجاح الاختبار.
-app.post("/admin-temp/hady2-100m", (req, res) => {
-  const adminKey = String(req.headers["x-admin-key"] || "");
-  if (adminKey !== "HADY2_100M_TEMP_20260602") {
-    return res.status(403).json({ error: "FORBIDDEN" });
-  }
-
-  const db = readDb();
-  const user = db.users.find((u) => String(u.username || u.name || "").toLowerCase() === "hady2");
-
-  if (!user) {
-    return res.status(404).json({ error: "USER_NOT_FOUND" });
-  }
-
-  user.coins = 100000000;
-  user.ownerCoinsUpdatedAt = new Date().toISOString();
-  writeDb(db);
-
-  res.json({
-    ok: true,
-    user: publicUser(user)
-  });
-});
-
 app.post("/auth/register", async (req, res) => {
   const username = String(req.body.username || "").trim();
   const password = String(req.body.password || "");
