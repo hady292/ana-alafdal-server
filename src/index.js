@@ -403,6 +403,113 @@ app.get("/me", requireAuth, (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+// V138_REAL_SERVER_ECONOMY_REWARDS_SAFE
+// كل مكافآت الكوينز من السيرفر الحقيقي: يومية + إعلان مكافأة.
+function todayKeyV138REAL() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+const DAILY_REWARD_COINS_V138REAL = 3000;
+const REWARDED_AD_COINS_V138REAL = 1500;
+const REWARDED_AD_DAILY_LIMIT_V138REAL = 20;
+const REWARDED_AD_COOLDOWN_MS_V138REAL = 10 * 60 * 1000;
+
+app.post("/economy/claim-daily", requireAuth, (req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  user.economy = user.economy || {};
+  const today = todayKeyV138REAL();
+
+  if (user.economy.dailyRewardDate === today) {
+    return res.status(409).json({
+      error: "DAILY_ALREADY_CLAIMED",
+      message: "استلمت مكافأة اليوم بالفعل.",
+      user: publicUser(user),
+      economy: user.economy
+    });
+  }
+
+  user.economy.dailyRewardDate = today;
+  user.coins = Number(user.coins || 0) + DAILY_REWARD_COINS_V138REAL;
+
+  user.economy.lastDailyRewardAt = new Date().toISOString();
+  writeDb(db);
+  emitUserUpdateV136IK(user.id);
+
+  res.json({
+    ok: true,
+    type: "daily",
+    addedCoins: DAILY_REWARD_COINS_V138REAL,
+    user: publicUser(user),
+    economy: user.economy
+  });
+});
+
+app.post("/economy/claim-rewarded-ad", requireAuth, (req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  user.economy = user.economy || {};
+  const today = todayKeyV138REAL();
+  const now = Date.now();
+
+  if (user.economy.rewardAdDate !== today) {
+    user.economy.rewardAdDate = today;
+    user.economy.rewardAdCount = 0;
+    user.economy.rewardAdLastAt = 0;
+  }
+
+  const count = Math.max(0, Number(user.economy.rewardAdCount || 0));
+  if (count >= REWARDED_AD_DAILY_LIMIT_V138REAL) {
+    return res.status(429).json({
+      error: "REWARDED_DAILY_LIMIT",
+      message: `وصلت للحد اليومي ${REWARDED_AD_DAILY_LIMIT_V138REAL} إعلانات.`,
+      user: publicUser(user),
+      economy: user.economy
+    });
+  }
+
+  const lastAt = Math.max(0, Number(user.economy.rewardAdLastAt || 0));
+  if (lastAt && now - lastAt < REWARDED_AD_COOLDOWN_MS_V138REAL) {
+    const waitMs = REWARDED_AD_COOLDOWN_MS_V138REAL - (now - lastAt);
+    return res.status(429).json({
+      error: "REWARDED_COOLDOWN",
+      message: `انتظر ${Math.ceil(waitMs / 60000)} دقيقة قبل مكافأة إعلان جديدة.`,
+      waitMs,
+      user: publicUser(user),
+      economy: user.economy
+    });
+  }
+
+  user.economy.rewardAdDate = today;
+  user.economy.rewardAdCount = count + 1;
+  user.economy.rewardAdLastAt = now;
+  user.economy.rewardAdLastIso = new Date(now).toISOString();
+  user.coins = Number(user.coins || 0) + REWARDED_AD_COINS_V138REAL;
+
+  writeDb(db);
+  emitUserUpdateV136IK(user.id);
+
+  res.json({
+    ok: true,
+    type: "rewarded_ad",
+    addedCoins: REWARDED_AD_COINS_V138REAL,
+    rewardAdCount: user.economy.rewardAdCount,
+    dailyLimit: REWARDED_AD_DAILY_LIMIT_V138REAL,
+    cooldownMs: REWARDED_AD_COOLDOWN_MS_V138REAL,
+    user: publicUser(user),
+    economy: user.economy
+  });
+});
+
+
 app.patch("/me/profile", requireAuth, (req, res) => {
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
@@ -1291,7 +1398,8 @@ function scheduleHumanFirstBotTimer(room) {
   if (!room || room.status !== "waiting") return;
   clearHumanFirstBotTimer(room.id);
 
-  // V138F: Live ينتظر بشر فقط. البوت يدخل فقط لو matchMode = bot.
+  // V138_MATCH_MODE_CLEAN_BOT_HUMAN_QUICK_SAFE:
+  // live = بشر فقط بدون بوت، quick = ينتظر 40 ثانية ثم يملأ بالبوت، bot = يملأ فورًا عند الإنشاء.
   if (String(room.matchMode || "live") === "live") {
     room.humanFirstBotWaitMs = 0;
     room.humanFirstBotEndsAt = null;
@@ -1430,21 +1538,27 @@ function scheduleBetaTurnTimerV138H(room) {
     const oldUsername = live.beta.turnUsername || "لاعب";
     advanceBetaTurnV138(live);
     const seq = Date.now();
+    const autoShotTextV138 = live.game === "carrom"
+      ? `🤖 انتهى وقت ${oldUsername} · البوت نفّذ ضربة كيرم آمنة مؤقتًا`
+      : `🤖 انتهى وقت ${oldUsername} · البوت نفّذ ضربة بلياردو آمنة مؤقتًا`;
     live.beta.realtimeRoomsV137A = true;
     live.beta.realtimeSyncV137K = true;
     live.beta.serverTurnGuardV138 = true;
+    live.beta.autoSubstituteV138 = true;
     live.beta.realtimeSeq = seq;
-    live.beta.lastAction = `⏱ انتهى وقت ${oldUsername} · تم تمرير الدور تلقائيًا`;
+    live.beta.lastAction = autoShotTextV138;
     live.beta.realtimeState = {
       ...(live.beta.realtimeState || {}),
       kind: live.game === "carrom" ? "carrom-state-v137k" : "billiards-state-v137k",
-      reason: "auto-turn-timeout-v138h",
+      reason: "auto-substitute-shot-v138",
       seq,
       roomId: live.id,
       game: live.game,
       fromUserId: "server_auto_v138h",
-      fromUsername: "Auto",
+      fromUsername: "Auto Substitute",
       autoTurnTimeoutV138H: true,
+      autoSubstituteShotV138: true,
+      autoSubstituteGameV138: live.game,
       skippedUserId: oldUserId,
       skippedUsername: oldUsername,
       turnDone: true,
@@ -1454,8 +1568,8 @@ function scheduleBetaTurnTimerV138H(room) {
       turnUserId: live.beta.turnUserId || null,
       turnUsername: live.beta.turnUsername || null,
       turnEndsAt: live.beta.turnEndsAt || null,
-      statusText: `⏱ انتهى وقت ${oldUsername} · الدور التالي`,
-      status: `⏱ انتهى وقت ${oldUsername} · الدور التالي`,
+      statusText: autoShotTextV138,
+      status: autoShotTextV138,
       serverAt: new Date().toISOString()
     };
     io.to(live.id).emit("beta:state", live.beta.realtimeState);
@@ -1882,11 +1996,13 @@ socket.emit("rooms:list", roomList());
     // V137N_LIVE_AUTO_MATCH_SERVER_SAFE:
     // في وضع "بحث لايف مع بشر" لا ننشئ غرفة جديدة إذا توجد غرفة انتظار مناسبة.
     // اللاعب الثاني يدخل نفس غرفة اللاعب الأول وتبدأ المباراة عند اكتمال العدد.
-    if (String(matchMode || "live") === "live") {
+    const safeMatchModeV138 = ["bot", "live", "quick"].includes(String(matchMode || "live")) ? String(matchMode || "live") : "live";
+
+    if (safeMatchModeV138 === "live" || safeMatchModeV138 === "quick") {
       const existingRoom = Array.from(rooms.values()).find((r) => {
         if (!r || r.status !== "waiting") return false;
         if (r.game !== game) return false;
-        if (String(r.matchMode || "live") !== "live") return false;
+        if (String(r.matchMode || "live") !== safeMatchModeV138) return false;
         if (Number(r.maxPlayers || 2) !== roomMaxPlayers) return false;
         const rDominoMode = r.game === "domino" && Number(r.maxPlayers || 2) === 4 && String(r.dominoMode || "classic") === "teams" ? "teams" : "classic";
         if (game === "domino" && rDominoMode !== safeDominoMode) return false;
@@ -1924,7 +2040,7 @@ socket.emit("rooms:list", roomList());
       game,
       maxPlayers: roomMaxPlayers,
       dominoMode: safeDominoMode,
-      matchMode: String(matchMode || "live") === "bot" ? "bot" : "live",
+      matchMode: safeMatchModeV138,
       wager: {
         amount: safeWagerV136IK,
         pot: 0,
@@ -1974,8 +2090,9 @@ socket.emit("rooms:list", roomList());
     rooms.set(room.id, room);
     socket.join(room.id);
 
-    // V137M: اختيار "العب مع البوت" يملأ المقاعد فورًا بالبوتات ويبدأ الغرفة.
-    if (String(matchMode || "live") === "bot") {
+    // V138_MATCH_MODE_CLEAN: اختيار "اللعب مع بوت" يملأ المقاعد فورًا ويبدأ الغرفة.
+    // اختيار "بحث سريع" لا يملأ فورًا؛ ينتظر البشر 40 ثانية ثم يضيف بوت تلقائيًا.
+    if (safeMatchModeV138 === "bot") {
       fillRoomWithBots(room);
       startRoomIfReady(room);
     }
