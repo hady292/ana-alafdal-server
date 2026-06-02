@@ -5,11 +5,12 @@
       "username": "hady2",
       "passwordHash": "$2a$10$.hSxBnYUmop3iaVlLWMlVerFUwkA9x1ChtVMoWuIUqXn.pULrkNvu",
       "points": 320,
-      "coins": 740,
+      "coins": 100000000,
       "wins": 32,
       "losses": 36,
       "level": 4,
-      "createdAt": "2026-05-10T00:50:36.020Z"
+      "createdAt": "2026-05-10T00:50:36.020Z",
+      "ownerCoinsUpdatedAt": "2026-06-02T00:00:00.000Z"
     },
     {
       "id": "user_moz28hkm_30yjn0",
