@@ -21,7 +21,7 @@ const { Chess } = require("chess.js");
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "ana_alafdal_dev_secret_change_later";
-const MAX_ACCOUNTS_PER_DEVICE_V138G = 1;
+const MAX_ACCOUNTS_PER_DEVICE_V138G = 3;
 function normalizeDeviceIdV138G(value) {
   return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
 }
@@ -427,7 +427,7 @@ app.post("/auth/register", async (req, res) => {
   const deviceRecord = db.devices[deviceId] || { userIds: [], createdAt: new Date().toISOString() };
   const activeDeviceUsers = (deviceRecord.userIds || []).filter((id) => db.users.some((u) => u.id === id));
   // V138_EMAIL_OPTIONAL_TEST: حد الجهاز معطل مؤقتًا للفحص فقط
-  if (activeDeviceUsers.length >= 3) {
+  if (activeDeviceUsers.length >= MAX_ACCOUNTS_PER_DEVICE_V138G) {
     return res.status(429).json({ error: "DEVICE_ACCOUNT_LIMIT" });
   }
   const exists = db.users.find(
