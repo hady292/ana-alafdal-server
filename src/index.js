@@ -169,6 +169,7 @@ function readDb() {
   if (!Array.isArray(db.referrals)) db.referrals = [];
   if (!Array.isArray(db.friendRequests)) db.friendRequests = [];
   if (!Array.isArray(db.privateChats)) db.privateChats = [];
+  if (!Array.isArray(db.friendBlocks)) db.friendBlocks = [];
   return db;
 }
 
@@ -197,6 +198,22 @@ function publicFriendRequestV138FR(db, request, viewerId) {
     from: from ? publicUser(from) : null,
     to: to ? publicUser(to) : null
   };
+}
+
+// V138_FRIENDS_BLOCK_UNFRIEND_SAFE
+function isFriendBlockedV138FB(db, a, b) {
+  const blocks = Array.isArray(db.friendBlocks) ? db.friendBlocks : [];
+  return blocks.some((x) =>
+    (String(x.blockerUserId) === String(a) && String(x.blockedUserId) === String(b)) ||
+    (String(x.blockerUserId) === String(b) && String(x.blockedUserId) === String(a))
+  );
+}
+
+function removeFriendBothWaysV138FB(a, b) {
+  a.friends = Array.isArray(a.friends) ? a.friends : [];
+  b.friends = Array.isArray(b.friends) ? b.friends : [];
+  a.friends = a.friends.filter((id) => String(id) !== String(b.id));
+  b.friends = b.friends.filter((id) => String(id) !== String(a.id));
 }
 
 // V138_PRIVATE_FRIEND_CHAT_SAFE
@@ -289,6 +306,9 @@ function handleFriendRequestV138FR(req, res) {
 
   if (!target) return res.status(404).json({ error: "FRIEND_NOT_FOUND" });
   if (target.id === me.id) return res.status(400).json({ error: "CANNOT_ADD_SELF" });
+  if (isFriendBlockedV138FB(db, me.id, target.id)) {
+    return res.status(403).json({ error: "FRIEND_BLOCKED" });
+  }
 
   me.friends = Array.isArray(me.friends) ? me.friends : [];
   target.friends = Array.isArray(target.friends) ? target.friends : [];
@@ -798,6 +818,7 @@ app.get("/friends/chat/:friendId", requireAuth, (req, res) => {
   const me = db.users.find((u) => u.id === req.user.id);
   const friend = db.users.find((u) => u.id === friendId);
   if (!me || !friend) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (isFriendBlockedV138FB(db, me.id, friend.id)) return res.status(403).json({ error: "FRIEND_BLOCKED" });
   if (!areFriendsV138PC(me, friend)) return res.status(403).json({ error: "NOT_FRIENDS" });
 
   const chat = getOrCreatePrivateChatV138PC(db, me.id, friend.id);
@@ -814,6 +835,7 @@ app.post("/friends/chat/:friendId", requireAuth, (req, res) => {
   const me = db.users.find((u) => u.id === req.user.id);
   const friend = db.users.find((u) => u.id === friendId);
   if (!me || !friend) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (isFriendBlockedV138FB(db, me.id, friend.id)) return res.status(403).json({ error: "FRIEND_BLOCKED" });
   if (!areFriendsV138PC(me, friend)) return res.status(403).json({ error: "NOT_FRIENDS" });
 
   const chat = getOrCreatePrivateChatV138PC(db, me.id, friend.id);
@@ -844,6 +866,84 @@ app.delete("/friends/chat/:friendId", requireAuth, (req, res) => {
 
   writeDb(db);
   res.json({ ok: true, cleared: true, messages: [] });
+});
+
+app.post("/friends/remove", requireAuth, (req, res) => {
+  const friendId = String(req.body.friendId || req.body.userId || "").trim();
+  if (!friendId) return res.status(400).json({ error: "BAD_FRIEND_ID" });
+
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  const friend = db.users.find((u) => u.id === friendId);
+  if (!me || !friend) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  removeFriendBothWaysV138FB(me, friend);
+  writeDb(db);
+  emitFriendRequestsUpdateV138FR(db, me.id, friend.id);
+  emitUserUpdateV136IK(me.id);
+  emitUserUpdateV136IK(friend.id);
+
+  res.json({ ok: true, removed: true });
+});
+
+app.post("/friends/block", requireAuth, (req, res) => {
+  const targetUserId = String(req.body.targetUserId || req.body.friendId || req.body.userId || "").trim();
+  if (!targetUserId) return res.status(400).json({ error: "BAD_TARGET_ID" });
+
+  const db = readDb();
+  db.friendBlocks = Array.isArray(db.friendBlocks) ? db.friendBlocks : [];
+
+  const me = db.users.find((u) => u.id === req.user.id);
+  const target = db.users.find((u) => u.id === targetUserId);
+  if (!me || !target) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (me.id === target.id) return res.status(400).json({ error: "CANNOT_BLOCK_SELF" });
+
+  removeFriendBothWaysV138FB(me, target);
+
+  db.friendRequests = (db.friendRequests || []).filter((r) =>
+    !(
+      r.status === "pending" &&
+      (
+        (String(r.fromUserId) === String(me.id) && String(r.toUserId) === String(target.id)) ||
+        (String(r.fromUserId) === String(target.id) && String(r.toUserId) === String(me.id))
+      )
+    )
+  );
+
+  const exists = db.friendBlocks.some((b) => String(b.blockerUserId) === String(me.id) && String(b.blockedUserId) === String(target.id));
+  if (!exists) {
+    db.friendBlocks.push({
+      id: makeId("block"),
+      blockerUserId: me.id,
+      blockedUserId: target.id,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  writeDb(db);
+  emitFriendRequestsUpdateV138FR(db, me.id, target.id);
+  emitUserUpdateV136IK(me.id);
+  emitUserUpdateV136IK(target.id);
+
+  res.json({ ok: true, blocked: true });
+});
+
+app.post("/friends/unblock", requireAuth, (req, res) => {
+  const targetUserId = String(req.body.targetUserId || req.body.friendId || req.body.userId || "").trim();
+  if (!targetUserId) return res.status(400).json({ error: "BAD_TARGET_ID" });
+
+  const db = readDb();
+  db.friendBlocks = Array.isArray(db.friendBlocks) ? db.friendBlocks : [];
+
+  const before = db.friendBlocks.length;
+  db.friendBlocks = db.friendBlocks.filter((b) =>
+    !(String(b.blockerUserId) === String(req.user.id) && String(b.blockedUserId) === String(targetUserId))
+  );
+
+  writeDb(db);
+  emitFriendRequestsUpdateV138FR(db, req.user.id, targetUserId);
+
+  res.json({ ok: true, unblocked: before !== db.friendBlocks.length });
 });
 
 app.get("/leaderboard", (req, res) => {
