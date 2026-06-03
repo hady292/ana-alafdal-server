@@ -249,12 +249,24 @@ function emitFriendRequestsUpdateV138FR(db, ...userIds) {
   for (const rawId of userIds) {
     const userId = String(rawId || "");
     if (!userId) continue;
-    const socketId = connectedUserSocketsV137O.get(userId);
-    if (!socketId) continue;
+
+    const user = (db.users || []).find((u) => String(u.id) === userId);
+    const friendIds = Array.isArray(user?.friends) ? user.friends : [];
+    const friends = friendIds
+      .map((id) => (db.users || []).find((u) => u.id === id))
+      .filter(Boolean)
+      .map(publicUser);
+
     const requests = (db.friendRequests || [])
       .filter((r) => r.status === "pending" && (r.fromUserId === userId || r.toUserId === userId))
       .map((r) => publicFriendRequestV138FR(db, r, userId));
-    io.to(socketId).emit("friends:requests", { requests });
+
+    const socketId = connectedUserSocketsV137O.get(userId);
+    if (!socketId) continue;
+
+    // V138_AUTO_REFRESH_FRIENDS_AFTER_ACCEPT_SAFE: يحدث صندوق الأصدقاء تلقائيًا بعد القبول/الإضافة.
+    io.to(socketId).emit("friends:requests", { requests, friends });
+    io.to(socketId).emit("friends:updated", { requests, friends });
   }
 }
 
