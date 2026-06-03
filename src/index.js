@@ -123,8 +123,8 @@ app.get("/app-config", (req, res) => {
     minSupportedVersion: "1.0.0",
     dailyCoins: 1000,
     rewardedAdCoins: 1500,
-    rewardedDailyLimit: 20,
-    rewardedCooldownMinutes: 10,
+    rewardedDailyLimit: 50,
+    rewardedCooldownMinutes: 5,
     updatedAt: new Date().toISOString()
   });
 });
@@ -579,8 +579,8 @@ function todayKeyV138REAL() {
 
 const DAILY_REWARD_COINS_V138REAL = 3000;
 const REWARDED_AD_COINS_V138REAL = 1500;
-const REWARDED_AD_DAILY_LIMIT_V138REAL = 20;
-const REWARDED_AD_COOLDOWN_MS_V138REAL = 10 * 60 * 1000;
+const REWARDED_AD_DAILY_LIMIT_V138REAL = 50;
+const REWARDED_AD_COOLDOWN_MS_V138REAL = 5 * 60 * 1000;
 
 app.post("/economy/claim-daily", requireAuth, (req, res) => {
   const db = readDb();
