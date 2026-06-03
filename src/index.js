@@ -167,6 +167,8 @@ function readDb() {
   if (!Array.isArray(db.matches)) db.matches = [];
   if (!db.devices || typeof db.devices !== "object") db.devices = {};
   if (!Array.isArray(db.referrals)) db.referrals = [];
+  if (!Array.isArray(db.friendRequests)) db.friendRequests = [];
+  if (!Array.isArray(db.privateChats)) db.privateChats = [];
   return db;
 }
 
@@ -178,6 +180,136 @@ function writeDb(db) {
 function makeId(prefix = "id") {
   return prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
 }
+
+
+// V138FR_FRIEND_REQUESTS_ACCEPT_REJECT_SAFE
+function publicFriendRequestV138FR(db, request, viewerId) {
+  const from = db.users.find((u) => u.id === request.fromUserId);
+  const to = db.users.find((u) => u.id === request.toUserId);
+  return {
+    id: request.id,
+    fromUserId: request.fromUserId,
+    toUserId: request.toUserId,
+    status: request.status || "pending",
+    createdAt: request.createdAt || "",
+    respondedAt: request.respondedAt || "",
+    direction: String(request.fromUserId) === String(viewerId) ? "outgoing" : "incoming",
+    from: from ? publicUser(from) : null,
+    to: to ? publicUser(to) : null
+  };
+}
+
+// V138_PRIVATE_FRIEND_CHAT_SAFE
+function areFriendsV138PC(a, b) {
+  const af = Array.isArray(a?.friends) ? a.friends : [];
+  const bf = Array.isArray(b?.friends) ? b.friends : [];
+  return af.includes(b.id) || bf.includes(a.id);
+}
+
+function chatKeyV138PC(a, b) {
+  return [String(a), String(b)].sort().join("__");
+}
+
+function getOrCreatePrivateChatV138PC(db, a, b) {
+  db.privateChats = Array.isArray(db.privateChats) ? db.privateChats : [];
+  const key = chatKeyV138PC(a, b);
+  let chat = db.privateChats.find((c) => c.key === key);
+  if (!chat) {
+    chat = { id: makeId("chat"), key, userIds: [String(a), String(b)], messages: [], clearedAtBy: {}, createdAt: new Date().toISOString() };
+    db.privateChats.push(chat);
+  }
+  chat.messages = Array.isArray(chat.messages) ? chat.messages : [];
+  chat.clearedAtBy = chat.clearedAtBy && typeof chat.clearedAtBy === "object" ? chat.clearedAtBy : {};
+  return chat;
+}
+
+function publicPrivateMessagesV138PC(chat, viewerId) {
+  const clearedAt = chat.clearedAtBy?.[String(viewerId)] || "";
+  const clearedTime = clearedAt ? Date.parse(clearedAt) || 0 : 0;
+  return (chat.messages || []).filter((m) => {
+    const t = Date.parse(m.createdAt || "") || 0;
+    return t >= clearedTime;
+  }).map((m) => ({
+    id: m.id,
+    fromUserId: m.fromUserId,
+    toUserId: m.toUserId,
+    text: m.text,
+    createdAt: m.createdAt
+  }));
+}
+
+function addFriendBothWaysV138FR(me, target) {
+  me.friends = Array.isArray(me.friends) ? me.friends : [];
+  target.friends = Array.isArray(target.friends) ? target.friends : [];
+  if (!me.friends.includes(target.id)) me.friends.push(target.id);
+  if (!target.friends.includes(me.id)) target.friends.push(me.id);
+}
+
+function emitFriendRequestsUpdateV138FR(db, ...userIds) {
+  for (const rawId of userIds) {
+    const userId = String(rawId || "");
+    if (!userId) continue;
+    const socketId = connectedUserSocketsV137O.get(userId);
+    if (!socketId) continue;
+    const requests = (db.friendRequests || [])
+      .filter((r) => r.status === "pending" && (r.fromUserId === userId || r.toUserId === userId))
+      .map((r) => publicFriendRequestV138FR(db, r, userId));
+    io.to(socketId).emit("friends:requests", { requests });
+  }
+}
+
+function handleFriendRequestV138FR(req, res) {
+  const username = String(req.body.username || req.body.email || "").trim();
+  const userId = String(req.body.userId || "").trim();
+  if (!userId && username.length < 3) return res.status(400).json({ error: "USERNAME_TOO_SHORT" });
+
+  const db = readDb();
+  db.friendRequests = Array.isArray(db.friendRequests) ? db.friendRequests : [];
+
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  const q = username.toLowerCase();
+  const target = db.users.find((u) =>
+    (userId && u.id === userId) ||
+    (!!q && (String(u.username || "").toLowerCase() === q || String(u.email || "").toLowerCase() === q))
+  );
+
+  if (!target) return res.status(404).json({ error: "FRIEND_NOT_FOUND" });
+  if (target.id === me.id) return res.status(400).json({ error: "CANNOT_ADD_SELF" });
+
+  me.friends = Array.isArray(me.friends) ? me.friends : [];
+  target.friends = Array.isArray(target.friends) ? target.friends : [];
+
+  if (me.friends.includes(target.id) || target.friends.includes(me.id)) {
+    addFriendBothWaysV138FR(me, target);
+    writeDb(db);
+    return res.json({ ok: true, status: "already_friends", friend: publicUser(target), user: publicUser(me) });
+  }
+
+  const reverse = db.friendRequests.find((r) => r.status === "pending" && r.fromUserId === target.id && r.toUserId === me.id);
+  if (reverse) {
+    reverse.status = "accepted";
+    reverse.respondedAt = new Date().toISOString();
+    addFriendBothWaysV138FR(me, target);
+    writeDb(db);
+    emitFriendRequestsUpdateV138FR(db, me.id, target.id);
+    emitUserUpdateV136IK(me.id);
+    emitUserUpdateV136IK(target.id);
+    return res.json({ ok: true, status: "accepted_reverse", friend: publicUser(target), user: publicUser(me) });
+  }
+
+  let request = db.friendRequests.find((r) => r.status === "pending" && r.fromUserId === me.id && r.toUserId === target.id);
+  if (!request) {
+    request = { id: makeId("fr"), fromUserId: me.id, toUserId: target.id, status: "pending", createdAt: new Date().toISOString() };
+    db.friendRequests.push(request);
+  }
+
+  writeDb(db);
+  emitFriendRequestsUpdateV138FR(db, me.id, target.id);
+  return res.json({ ok: true, status: "pending", request: publicFriendRequestV138FR(db, request, me.id), friend: publicUser(target) });
+}
+
 
 function publicUser(user) {
   return {
@@ -589,31 +721,117 @@ app.get("/friends", requireAuth, (req, res) => {
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
   const friendIds = Array.isArray(user.friends) ? user.friends : [];
   const friends = friendIds
     .map((id) => db.users.find((u) => u.id === id))
     .filter(Boolean)
     .map(publicUser);
-  res.json({ friends });
+
+  const requests = (db.friendRequests || [])
+    .filter((r) => r.status === "pending" && (r.fromUserId === user.id || r.toUserId === user.id))
+    .map((r) => publicFriendRequestV138FR(db, r, user.id));
+
+  res.json({ friends, requests });
 });
 
-app.post("/friends/add", requireAuth, (req, res) => {
-  const username = String(req.body.username || req.body.email || "").trim();
-  const userId = String(req.body.userId || "").trim();
-  if (!userId && username.length < 3) return res.status(400).json({ error: "USERNAME_TOO_SHORT" });
+app.post("/friends/request", requireAuth, handleFriendRequestV138FR);
+
+// توافق مع الزر القديم: صار يرسل طلب صداقة بدل إضافة مباشرة
+app.post("/friends/add", requireAuth, handleFriendRequestV138FR);
+
+app.post("/friends/respond", requireAuth, (req, res) => {
+  const requestId = String(req.body.requestId || req.body.id || "").trim();
+  const action = String(req.body.action || "").trim().toLowerCase();
+
+  if (!requestId || !["accept", "reject", "decline"].includes(action)) {
+    return res.status(400).json({ error: "BAD_REQUEST" });
+  }
+
   const db = readDb();
+  db.friendRequests = Array.isArray(db.friendRequests) ? db.friendRequests : [];
+
   const me = db.users.find((u) => u.id === req.user.id);
   if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
-  const q = username.toLowerCase();
-  const target = db.users.find((u) => (userId && u.id === userId) || (!!q && (String(u.username || "").toLowerCase() === q || String(u.email || "").toLowerCase() === q)));
-  if (!target) return res.status(404).json({ error: "FRIEND_NOT_FOUND" });
-  if (target.id === me.id) return res.status(400).json({ error: "CANNOT_ADD_SELF" });
-  me.friends = Array.isArray(me.friends) ? me.friends : [];
-  target.friends = Array.isArray(target.friends) ? target.friends : [];
-  if (!me.friends.includes(target.id)) me.friends.push(target.id);
-  if (!target.friends.includes(me.id)) target.friends.push(me.id);
+
+  const request = db.friendRequests.find((r) => r.id === requestId && r.toUserId === me.id && r.status === "pending");
+  if (!request) return res.status(404).json({ error: "REQUEST_NOT_FOUND" });
+
+  const sender = db.users.find((u) => u.id === request.fromUserId);
+  if (!sender) return res.status(404).json({ error: "SENDER_NOT_FOUND" });
+
+  request.respondedAt = new Date().toISOString();
+
+  if (action === "accept") {
+    request.status = "accepted";
+    addFriendBothWaysV138FR(me, sender);
+  } else {
+    request.status = "rejected";
+  }
+
   writeDb(db);
-  res.json({ ok: true, friend: publicUser(target), user: publicUser(me) });
+  emitFriendRequestsUpdateV138FR(db, me.id, sender.id);
+
+  if (action === "accept") {
+    emitUserUpdateV136IK(me.id);
+    emitUserUpdateV136IK(sender.id);
+  }
+
+  res.json({ ok: true, status: request.status, friend: action === "accept" ? publicUser(sender) : null });
+});
+
+app.get("/friends/chat/:friendId", requireAuth, (req, res) => {
+  const friendId = String(req.params.friendId || "").trim();
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  const friend = db.users.find((u) => u.id === friendId);
+  if (!me || !friend) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (!areFriendsV138PC(me, friend)) return res.status(403).json({ error: "NOT_FRIENDS" });
+
+  const chat = getOrCreatePrivateChatV138PC(db, me.id, friend.id);
+  writeDb(db);
+  res.json({ ok: true, friend: publicUser(friend), messages: publicPrivateMessagesV138PC(chat, me.id) });
+});
+
+app.post("/friends/chat/:friendId", requireAuth, (req, res) => {
+  const friendId = String(req.params.friendId || "").trim();
+  const text = String(req.body.text || "").trim().slice(0, 500);
+  if (!text) return res.status(400).json({ error: "EMPTY_MESSAGE" });
+
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  const friend = db.users.find((u) => u.id === friendId);
+  if (!me || !friend) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (!areFriendsV138PC(me, friend)) return res.status(403).json({ error: "NOT_FRIENDS" });
+
+  const chat = getOrCreatePrivateChatV138PC(db, me.id, friend.id);
+  const msg = {
+    id: makeId("msg"),
+    fromUserId: me.id,
+    toUserId: friend.id,
+    text,
+    createdAt: new Date().toISOString()
+  };
+  chat.messages.push(msg);
+  if (chat.messages.length > 300) chat.messages = chat.messages.slice(-300);
+
+  writeDb(db);
+  res.json({ ok: true, message: msg, messages: publicPrivateMessagesV138PC(chat, me.id) });
+});
+
+app.delete("/friends/chat/:friendId", requireAuth, (req, res) => {
+  const friendId = String(req.params.friendId || "").trim();
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  const friend = db.users.find((u) => u.id === friendId);
+  if (!me || !friend) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (!areFriendsV138PC(me, friend)) return res.status(403).json({ error: "NOT_FRIENDS" });
+
+  const chat = getOrCreatePrivateChatV138PC(db, me.id, friend.id);
+  chat.clearedAtBy[String(me.id)] = new Date().toISOString();
+
+  writeDb(db);
+  res.json({ ok: true, cleared: true, messages: [] });
 });
 
 app.get("/leaderboard", (req, res) => {
