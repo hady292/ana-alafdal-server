@@ -946,6 +946,38 @@ app.post("/friends/block", requireAuth, (req, res) => {
   res.json({ ok: true, blocked: true });
 });
 
+
+// V138_GOOGLE_PLAY_UGC_REPORT_SAFE:
+// إبلاغ داخل التطبيق عن مستخدم/رسالة لدعم سياسة Google Play للمحتوى الذي ينشئه المستخدمون.
+app.post("/friends/report", requireAuth, (req, res) => {
+  const targetUserId = String(req.body.targetUserId || req.body.friendId || req.body.userId || "").trim();
+  const reason = String(req.body.reason || "friend_or_chat_report").slice(0, 300);
+  const context = String(req.body.context || "friends").slice(0, 80);
+
+  if (!targetUserId) return res.status(400).json({ error: "BAD_TARGET_ID" });
+
+  const db = readDb();
+  db.userReports = Array.isArray(db.userReports) ? db.userReports : [];
+
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  const target = db.users.find((u) => String(u.id) === String(targetUserId));
+  if (!me || !target) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (String(me.id) === String(target.id)) return res.status(400).json({ error: "CANNOT_REPORT_SELF" });
+
+  db.userReports.push({
+    id: makeId("report"),
+    reporterUserId: me.id,
+    targetUserId: target.id,
+    reason,
+    context,
+    status: "open",
+    createdAt: new Date().toISOString()
+  });
+
+  writeDb(db);
+  res.json({ ok: true, reported: true });
+});
+
 app.post("/friends/unblock", requireAuth, (req, res) => {
   const targetUserId = String(req.body.targetUserId || req.body.friendId || req.body.userId || "").trim();
   if (!targetUserId) return res.status(400).json({ error: "BAD_TARGET_ID" });
