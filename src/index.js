@@ -2261,6 +2261,91 @@ function handleDominoPlayerLeave(room, leavingUserId) {
   emitRoomState(room);
 }
 
+
+// V138_BETA4_WITHDRAW_CONTINUE_SAFE:
+// كيرم 4 وبلياردو 4: إذا لاعب انسحب، الباقي يواصلون.
+// 4 -> 3 يواصلون، 3 -> 2 يواصلون، 2 -> 1 الأخير فائز.
+function handleBeta4PlayerLeaveV138(room, leavingUserId) {
+  if (!room || !["carrom", "billiards"].includes(room.game)) return false;
+
+  const wasPlaying = room.status === "playing";
+  const oldPlayers = Array.isArray(room.players) ? room.players : [];
+  const leavingIndex = oldPlayers.findIndex((p) => String(p.id) === String(leavingUserId));
+  const leavingPlayer = oldPlayers[leavingIndex];
+  const leavingName = leavingPlayer?.username || "لاعب";
+  const gameLabel = room.game === "carrom" ? "الكيرم" : "البلياردو";
+
+  room.players = oldPlayers.filter((p) => String(p.id) !== String(leavingUserId));
+
+  if (room.players.length === 0) {
+    clearAllTurnTimersV138H(room.id);
+    clearHumanFirstBotTimer(room.id);
+    rooms.delete(room.id);
+    io.emit("rooms:list", roomList());
+    return true;
+  }
+
+  if (!wasPlaying) {
+    room.status = "waiting";
+    room.beta = room.beta || {};
+    room.beta.lastAction = `${leavingName} غادر غرفة ${gameLabel}`;
+    scheduleHumanFirstBotTimer(room);
+    emitRoomState(room);
+    return true;
+  }
+
+  room.beta = room.beta || {};
+  room.beta.withdrawContinueV138 = true;
+  room.beta.lastLeftPlayerNameV138 = leavingName;
+  room.beta.lastLeftAtV138 = new Date().toISOString();
+
+  // إذا بقي لاعب واحد فقط، هو الفائز.
+  if (room.players.length === 1) {
+    const winner = room.players[0];
+    room.beta.lastAction = `${leavingName} انسحب · ${winner.username || "اللاعب الباقي"} هو الفائز`;
+    io.to(room.id).emit("beta:playerLeft", {
+      roomId: room.id,
+      game: room.game,
+      leftUserId: leavingUserId,
+      leftUsername: leavingName,
+      remainingCount: room.players.length,
+      finished: true,
+      winnerId: winner.id,
+      winnerUsername: winner.username || "الفائز",
+      message: room.beta.lastAction
+    });
+    finishRoomByWithdrawal(room, winner.id, room.beta.lastAction);
+    return true;
+  }
+
+  // إذا بقي 3 أو 2 لاعبين، تستمر المباراة.
+  const stillHasTurnPlayer = room.players.some((p) => String(p.id) === String(room.beta.turnUserId || ""));
+  if (!stillHasTurnPlayer || String(room.beta.turnUserId || "") === String(leavingUserId)) {
+    const nextIndex = Math.min(Math.max(0, leavingIndex), room.players.length - 1);
+    setBetaTurnV138(room, room.players[nextIndex]?.id || room.players[0].id);
+  }
+
+  room.beta.lastAction = `${leavingName} انسحب من ${gameLabel} 4 · ${room.players.length} لاعبين يواصلون`;
+  scheduleBetaTurnTimerV138H(room);
+
+  io.to(room.id).emit("beta:playerLeft", {
+    roomId: room.id,
+    game: room.game,
+    leftUserId: leavingUserId,
+    leftUsername: leavingName,
+    remainingCount: room.players.length,
+    finished: false,
+    nextTurnUserId: room.beta.turnUserId || null,
+    nextTurnUsername: room.beta.turnUsername || null,
+    message: room.beta.lastAction
+  });
+
+  emitRoomState(room);
+  io.emit("rooms:list", roomList());
+  return true;
+}
+
+
 io.use((socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token;
   if (!token) return next(new Error("NO_TOKEN"));
@@ -2563,6 +2648,12 @@ socket.emit("rooms:list", roomList());
 
     if (room.game === "domino") {
       handleDominoPlayerLeave(room, socket.user.id);
+      socket.emit("rooms:list", roomList());
+      return;
+    }
+
+    if ((room.game === "carrom" || room.game === "billiards") && Number(room.maxPlayers || 2) === 4) {
+      handleBeta4PlayerLeaveV138(room, socket.user.id);
       socket.emit("rooms:list", roomList());
       return;
     }
