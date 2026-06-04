@@ -125,6 +125,24 @@ app.get("/app-config", (req, res) => {
     rewardedAdCoins: 1500,
     rewardedDailyLimit: 50,
     rewardedCooldownMinutes: 5,
+    featureFlagsVersion: 1,
+    features: {
+      domino: true,
+      chess: true,
+      carrom: true,
+      billiards: true,
+      friends: true,
+      privateChat: true,
+      inviteFriends: true,
+      voiceChat: true,
+      rewardedAds: true,
+      interstitialAds: true,
+      policyPage: true
+    },
+    disabledMessage: "هذه الميزة غير متاحة مؤقتًا. اضغط تحديث البيانات لاحقًا.",
+    forceUpdateTitle: "تحديث مطلوب",
+    forceUpdateMessage: "يوجد تحديث جديد للتطبيق. يرجى التحديث من Google Play.",
+    playStoreUrl: "https://play.google.com/store/apps/details?id=com.hadiapps.anaalafdal",
     updatedAt: new Date().toISOString()
   });
 });
