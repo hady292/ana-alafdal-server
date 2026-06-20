@@ -1,4 +1,14 @@
-// V138J_REAL_INVITE_ALL_GAMES_DEEPLINK_READY_SAFE
+// V393B_SUPPORT_REPLY_SAFE: player sees replies from app management only; owner can clear content and reply without exposing identity.
+// V391_DELETE_SUPPORT_MESSAGE_SAFE: owner can delete resolved support messages from admin inbox.
+// V390_SUPPORT_IMAGE_ATTACHMENT_SAFE: support messages can include one private image shown only in owner inbox.
+// V388B_FIX_ADMIN_SUPPORT_OWNER_ACCOUNT_SAFE: make hady22333 owner; owner email is private server-side only.
+// V388_ADMIN_SUPPORT_INBOX_SAFE: owner-only admin inbox for support messages.
+// V375_SUPPORT_SUGGESTIONS_HEADER_SAFE: save support/suggestions/complaints messages in db.supportMessagesV375.
+// V294_GAME_ISOLATION_APP_SERVER_READY: عزل قناة beta المشتركة بين الكيرم والبلياردو على السيرفر حسب room.game/state.game/kind.
+// V269_CARROM_ONLINE_BOT_3S_SERVER_DELEGATE_READY: يسمح لجهاز اللاعب الحقيقي بتنفيذ ضربة بوت الكيرم عندما يكون turnUserId للبوت بدل انتظار مؤقت 15 ثانية.
+// V262_BILLIARDS4_TEAM_WIN_PAYOUT_READY: بلياردو 4 شراكة 0+2 ضد 1+3، فوز وجائزة للفريق.
+// V260B_CARROM4_TEAM_WIN_PAYOUT_SAFE: كيرم 4 شراكة 0+2 ضد 1+3، فوز وجائزة للفريق.
+// V201_AUTH_EMAIL_PHONE_LOGIN_REGISTER_READY: server accepts email/phone/username auth.\n// V138J_REAL_INVITE_ALL_GAMES_DEEPLINK_READY_SAFE
 // V138H_ALL_GAMES_10S_AUTO_TURN_SAFE
 // V137P_OPPONENT_PROFILE_FRIEND_REAL_SAFE
 // V137O_LIVE_MIC_ALL_GAMES_MESH_SAFE
@@ -21,7 +31,88 @@ const { Chess } = require("chess.js");
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "ana_alafdal_dev_secret_change_later";
-const MAX_ACCOUNTS_PER_DEVICE_V138G = 3;
+
+// V416A_SECURITY_HARDENING_LOCAL_READY
+// حماية إنتاج/اختبار: لا أسرار داخل الكود، CORS مضبوط، rate limit، وهيدرات أمنية بدون تغيير قوانين اللعب.
+const IS_PRODUCTION_V416A = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+const DEFAULT_DEV_JWT_SECRET_V416A = "ana_alafdal_dev_secret_change_later";
+
+function isWeakJwtSecretV416A(value) {
+  const s = String(value || "");
+  return !s || s === DEFAULT_DEV_JWT_SECRET_V416A || s.length < 32;
+}
+
+if (IS_PRODUCTION_V416A && isWeakJwtSecretV416A(JWT_SECRET)) {
+  console.error("V416A_SECURITY: ضع JWT_SECRET قوي في .env على سيرفر الإنتاج قبل التشغيل.");
+  process.exit(1);
+} else if (isWeakJwtSecretV416A(JWT_SECRET)) {
+  console.warn("V416A_SECURITY: JWT_SECRET الحالي مناسب للتطوير فقط، لا تستخدمه للإنتاج.");
+}
+
+const ALLOWED_ORIGINS_V416A = String(process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((x) => x.trim())
+  .filter(Boolean);
+
+function corsOriginV416A(origin, callback) {
+  // تطبيقات الموبايل غالبًا لا ترسل Origin، لذلك نسمح للـ no-origin.
+  if (!origin) return callback(null, true);
+  if (ALLOWED_ORIGINS_V416A.length === 0 && !IS_PRODUCTION_V416A) return callback(null, true);
+  if (ALLOWED_ORIGINS_V416A.includes(origin)) return callback(null, true);
+  return callback(null, false);
+}
+
+function securityHeadersV416A(req, res, next) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=()");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+}
+
+function clientIpV416A(req) {
+  const xf = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return xf || req.socket?.remoteAddress || req.ip || "unknown";
+}
+
+const httpRateBucketsV416A = new Map();
+
+function makeRateLimitV416A(name, windowMs, max, message) {
+  return (req, res, next) => {
+    if (req.path === "/health") return next();
+
+    const now = Date.now();
+    const userKey = req.user?.id ? `u:${req.user.id}` : `ip:${clientIpV416A(req)}`;
+    const key = `${name}:${userKey}`;
+
+    let bucket = httpRateBucketsV416A.get(key);
+    if (!bucket || now > bucket.resetAt) bucket = { count: 0, resetAt: now + windowMs };
+
+    bucket.count += 1;
+    httpRateBucketsV416A.set(key, bucket);
+
+    if (bucket.count > max) {
+      const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      res.setHeader("Retry-After", String(retryAfter));
+      return res.status(429).json({
+        error: "RATE_LIMIT",
+        message: message || "طلبات كثيرة، حاول لاحقًا.",
+        retryAfter
+      });
+    }
+
+    next();
+  };
+}
+
+const globalRateLimitV416A = makeRateLimitV416A("global", 15 * 60 * 1000, 900, "طلبات كثيرة على السيرفر، حاول بعد قليل.");
+const authRateLimitV416A = makeRateLimitV416A("auth", 10 * 60 * 1000, 20, "محاولات دخول/تسجيل كثيرة، انتظر قليلًا.");
+const economyRateLimitV416A = makeRateLimitV416A("economy", 10 * 60 * 1000, 90, "طلبات كوينز كثيرة، انتظر قليلًا.");
+const socialRateLimitV416A = makeRateLimitV416A("social", 5 * 60 * 1000, 120, "نشاط اجتماعي كثير، انتظر قليلًا.");
+const uploadRateLimitV416A = makeRateLimitV416A("upload", 15 * 60 * 1000, 12, "رفع ملفات كثير، انتظر قليلًا.");
+const adminRateLimitV416A = makeRateLimitV416A("admin", 10 * 60 * 1000, 80, "طلبات إدارة كثيرة، انتظر قليلًا.");
+const MAX_ACCOUNTS_PER_DEVICE_V138G = 999999; // V194B_DISABLE_3_ACCOUNTS_LIMIT_READY: limit disabled temporarily
 function normalizeDeviceIdV138G(value) {
   return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
 }
@@ -111,6 +202,21 @@ function isBotIdV136IK(id) {
 }
 
 const app = express();
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(securityHeadersV416A);
+app.use(cors({
+  origin: corsOriginV416A,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false
+}));
+app.use(globalRateLimitV416A);
+app.use(express.json({ limit: "35mb" }));
+const UPLOADS_DIR_V154 = path.join(__dirname, "..", "uploads");
+fs.mkdirSync(UPLOADS_DIR_V154, { recursive: true });
+app.use("/uploads", express.static(UPLOADS_DIR_V154));
+
 
 // V138_REMOTE_CONFIG_SAFE: تحديث بيانات التطبيق من السيرفر بدون تحديث Google Play
 app.get("/app-config", (req, res) => {
@@ -137,6 +243,10 @@ app.get("/app-config", (req, res) => {
       voiceChat: true,
       rewardedAds: true,
       interstitialAds: true,
+      bannerAds: true,
+      postInterstitialAds: true,
+      privateChatInterstitialAds: true,
+      vipSubscriptions: true, // V415A_VIP_MONTHLY_FOUNDATION_NO_ADS_DAILY_BONUS_GIFT_DISCOUNT_SAFE
       policyPage: true
     },
     disabledMessage: "هذه الميزة غير متاحة مؤقتًا. اضغط تحديث البيانات لاحقًا.",
@@ -155,15 +265,46 @@ app.get("/app-config", (req, res) => {
 
 app.get("/", (req, res) => res.status(200).send("ANA_ALAFDAL_SERVER_OK"));
 app.get("/health", (req, res) => res.status(200).send("ANA_ALAFDAL_SERVER_OK"));
-app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+// V416A_SECURITY_HARDENING_LOCAL_READY: CORS/body parser/rate-limit moved before routes.
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: { origin: corsOriginV416A, methods: ["GET", "POST"] }
 });
 
 const connectedUserSocketsV137O = new Map();
+
+const socketCooldownsV416A = new Map();
+
+function socketCooldownV416A(socket, key, ms) {
+  const userId = String(socket?.user?.id || socket.id || "anon");
+  const safeKey = `sock:${userId}:${String(key || "event")}`;
+  const now = Date.now();
+  const last = Number(socketCooldownsV416A.get(safeKey) || 0);
+
+  if (last && now - last < ms) {
+    const waitMs = ms - (now - last);
+    try {
+      socket.emit("error:message", `انتظر ${Math.ceil(waitMs / 1000)} ثانية قبل المحاولة مرة أخرى`);
+    } catch {}
+    return true;
+  }
+
+  socketCooldownsV416A.set(safeKey, now);
+
+  if (socketCooldownsV416A.size > 20000) {
+    const cutoff = now - 30 * 60 * 1000;
+    for (const [k, v] of socketCooldownsV416A.entries()) {
+      if (Number(v) < cutoff) socketCooldownsV416A.delete(k);
+    }
+  }
+
+  return false;
+}
+
+function isRoomPlayerV416A(room, userId) {
+  return (room?.players || []).some((p) => String(p?.id) === String(userId));
+}
 
 const dataDir = path.join(__dirname, "..", "data");
 const dbFile = path.join(dataDir, "db.json");
@@ -188,6 +329,8 @@ function readDb() {
   if (!Array.isArray(db.friendRequests)) db.friendRequests = [];
   if (!Array.isArray(db.privateChats)) db.privateChats = [];
   if (!Array.isArray(db.friendBlocks)) db.friendBlocks = [];
+  if (!Array.isArray(db.posts)) db.posts = [];
+  if (!Array.isArray(db.postReports)) db.postReports = [];
   return db;
 }
 
@@ -374,9 +517,98 @@ function publicUser(user) {
     inviteCode: user.inviteCode || "",
     friendsCount: Array.isArray(user.friends) ? user.friends.length : 0,
     avatarUri: user.avatarUri || "",
-    countryCode: user.countryCode || "YE"
+    countryCode: user.countryCode || "YE",
+    vipLevel: Number(user.vipLevel || 0),
+    vipActivatedAt: user.vipActivatedAt || "",
+    vipExpiresAt: user.vipExpiresAt || "",
+    vipSubscriptionStatus: user.vipSubscriptionStatus || "",
+    vipPlan: user.vipPlan || "",
+    vipDailyBonusDate: user.vipDailyBonusDate || "",
+    walletLog: Array.isArray(user.walletLog) ? user.walletLog.slice(0, 30) : [],
+    tasks: user.tasks || {}
   };
 }
+
+
+// V368_POSTS_AUDIENCE_PRIVACY_SAFE: server-side post audience public/friends/private.
+const POST_REPORT_HIDE_LIMIT_V149 = 3;
+
+function postReportCountV149(db, postId) {
+  return Array.isArray(db.postReports)
+    ? db.postReports.filter((r) => String(r.postId) === String(postId)).length
+    : 0;
+}
+
+function shouldHidePostByReportsV149(db, post, viewerId) {
+  if (!post || !post.id) return false;
+  if (String(post.userId) === String(viewerId)) return false;
+  return postReportCountV149(db, post.id) >= POST_REPORT_HIDE_LIMIT_V149;
+}
+
+function normalizePostVisibilityV368(value) {
+  const v = String(value || "public").trim().toLowerCase();
+  if (v === "friends" || v === "friend") return "friends";
+  if (v === "private" || v === "me" || v === "only_me") return "private";
+  return "public";
+}
+
+function canViewPostV368(db, post, viewer) {
+  if (!post || !viewer) return false;
+  const viewerId = String(viewer.id || "");
+  const ownerId = String(post.userId || "");
+  if (ownerId === viewerId) return true;
+  if (post.hiddenByOwner) return false;
+
+  const visibility = normalizePostVisibilityV368(post.visibility || post.privacy || post.audience || "public");
+  if (visibility === "public") return true;
+  if (visibility === "private") return false;
+
+  const owner = Array.isArray(db.users) ? db.users.find((u) => String(u.id) === ownerId) : null;
+  const ownerFriends = Array.isArray(owner?.friends) ? owner.friends.map(String) : [];
+  const viewerFriends = Array.isArray(viewer?.friends) ? viewer.friends.map(String) : [];
+
+  return ownerFriends.includes(viewerId) || viewerFriends.includes(ownerId);
+}
+
+function publicPostV143(db, post, viewerId) {
+  const owner = db.users.find((u) => String(u.id) === String(post.userId)) || {};
+  const likes = Array.isArray(post.likes) ? post.likes : [];
+  const comments = Array.isArray(post.comments) ? post.comments : [];
+  const commentsPreview = comments.slice(-3).reverse().map((c) => {
+    const cu = db.users.find((u) => String(u.id) === String(c.userId)) || {};
+    return {
+      id: c.id,
+      userId: c.userId,
+      username: cu.username || "لاعب",
+      countryCode: cu.countryCode || "YE",
+      text: String(c.text || ""),
+      createdAt: c.createdAt || "",
+      canDelete: String(c.userId) === String(viewerId)
+    };
+  });
+
+  return {
+    id: post.id,
+    userId: post.userId,
+    username: owner.username || "لاعب",
+    countryCode: owner.countryCode || "YE",
+    avatarUri: owner.avatarUri || "",
+    text: String(post.text || ""),
+    mediaUrl: String(post.mediaUrl || ""),
+    mediaType: String(post.mediaType || ""),
+    visibility: normalizePostVisibilityV368(post.visibility || post.privacy || post.audience || "public"),
+    createdAt: post.createdAt || "",
+    likes: likes.length,
+    likedByMe: likes.map(String).includes(String(viewerId)),
+    canDelete: String(post.userId) === String(viewerId),
+    commentsCount: comments.length,
+    commentsPreview,
+    reportCount: String(post.userId) === String(viewerId) ? postReportCountV149(db, post.id) : 0,
+    hiddenByReports: shouldHidePostByReportsV149(db, post, viewerId),
+    hiddenByOwner: !!post.hiddenByOwner
+  };
+}
+
 
 function getUserMeta(userId) {
   if (!userId || String(userId).startsWith("bot_")) return { username: "Bot", avatarUri: "", countryCode: "YE" };
@@ -416,24 +648,86 @@ app.get("/", (req, res) => {
   });
 });
 
-app.post("/auth/register", async (req, res) => {
-  const username = String(req.body.username || "").trim();
+
+// V201_AUTH_EMAIL_PHONE_LOGIN_REGISTER_READY:
+// دخول/تسجيل بإيميل أو رقم جوال أو اسم مستخدم، مع بقاء الحسابات القديمة.
+function normalizePhoneV201(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  let v = raw.replace(/[\s\-()]/g, "");
+  if (v.startsWith("00")) v = "+" + v.slice(2);
+  const digits = v.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return "";
+  return v.startsWith("+") ? "+" + digits : digits;
+}
+
+function looksEmailV201(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim().toLowerCase());
+}
+
+function makeUsernameBaseV201(value) {
+  const raw = String(value || "player").trim().toLowerCase();
+  const beforeAt = raw.includes("@") ? raw.split("@")[0] : raw;
+  const clean = beforeAt.replace(/[^a-z0-9_\u0600-\u06FF]/gi, "").slice(0, 18);
+  return clean.length >= 3 ? clean : "player";
+}
+
+function makeUniqueUsernameV201(db, baseValue) {
+  const base = makeUsernameBaseV201(baseValue);
+  let username = base;
+  let i = 1;
+  while (db.users.some((u) => String(u.username || "").toLowerCase() === username.toLowerCase())) {
+    username = (base + i).slice(0, 22);
+    i += 1;
+  }
+  return username;
+}
+
+function findUserByIdentifierV201(db, value) {
+  const raw = String(value || "").trim();
+  const key = raw.toLowerCase();
+  const phone = normalizePhoneV201(raw);
+  return db.users.find((u) => {
+    const uName = String(u.username || "").toLowerCase();
+    const uEmail = String(u.email || "").toLowerCase();
+    const uPhone = normalizePhoneV201(u.phone || u.mobile || "");
+    return uName === key || (!!uEmail && uEmail === key) || (!!phone && !!uPhone && uPhone === phone);
+  });
+}
+
+app.post("/auth/register", authRateLimitV416A, async (req, res) => {
+  const rawIdentifier = String(req.body.identifier || req.body.username || req.body.email || req.body.phone || "").trim();
+  const rawUsername = String(req.body.username || "").trim();
   const password = String(req.body.password || "");
-  const email = String(req.body.email || "").trim().toLowerCase();
+  let email = String(req.body.email || "").trim().toLowerCase();
+  let phone = normalizePhoneV201(req.body.phone || "");
   const deviceId = normalizeDeviceIdV138G(req.body.deviceId);
   const inviteCodeV138J = normalizeInviteCodeV138J(req.body.inviteCode);
+  const registerCountryCodeV227 = String(req.body.countryCode || "YE").trim().toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2) || "YE";
 
-  if (username.length < 3) {
-    return res.status(400).json({ error: "USERNAME_TOO_SHORT" });
+  if (!rawIdentifier && !email && !phone) {
+    return res.status(400).json({ error: "CONTACT_REQUIRED" });
+  }
+
+  if (!email && looksEmailV201(rawIdentifier)) {
+    email = rawIdentifier.toLowerCase();
+  }
+
+  if (!phone) {
+    phone = normalizePhoneV201(rawIdentifier);
+  }
+
+  if (email && !looksEmailV201(email)) {
+    return res.status(400).json({ error: "EMAIL_INVALID" });
+  }
+
+  const rawLooksPhone = /[0-9]/.test(rawIdentifier) && rawIdentifier.replace(/\D/g, "").length >= 7;
+  if (!phone && rawLooksPhone && !looksEmailV201(rawIdentifier)) {
+    return res.status(400).json({ error: "PHONE_INVALID" });
   }
 
   if (password.length < 4) {
     return res.status(400).json({ error: "PASSWORD_TOO_SHORT" });
-  }
-
-
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: "EMAIL_INVALID" });
   }
 
   if (!deviceId) {
@@ -442,18 +736,32 @@ app.post("/auth/register", async (req, res) => {
 
   const db = readDb();
   db.devices = db.devices || {};
+
+  let username = rawUsername;
+  if (looksEmailV201(username) || normalizePhoneV201(username)) username = "";
+  if (!username) username = makeUniqueUsernameV201(db, email || phone || rawIdentifier);
+  if (username.length < 3) {
+    return res.status(400).json({ error: "USERNAME_TOO_SHORT" });
+  }
+
   const deviceRecord = db.devices[deviceId] || { userIds: [], createdAt: new Date().toISOString() };
   const activeDeviceUsers = (deviceRecord.userIds || []).filter((id) => db.users.some((u) => u.id === id));
-  // V138_EMAIL_OPTIONAL_TEST: حد الجهاز معطل مؤقتًا للفحص فقط
-  if (activeDeviceUsers.length >= MAX_ACCOUNTS_PER_DEVICE_V138G) {
+
+  if (false && activeDeviceUsers.length >= MAX_ACCOUNTS_PER_DEVICE_V138G) {
     return res.status(429).json({ error: "DEVICE_ACCOUNT_LIMIT" });
   }
-  const exists = db.users.find(
-    (u) => u.username.toLowerCase() === username.toLowerCase() || (!!email && String(u.email || "").toLowerCase() === email)
-  );
+
+  const exists = db.users.find((u) => {
+    const sameUsername = String(u.username || "").toLowerCase() === username.toLowerCase();
+    const sameEmail = !!email && String(u.email || "").toLowerCase() === email;
+    const samePhone = !!phone && normalizePhoneV201(u.phone || u.mobile || "") === phone;
+    return sameUsername || sameEmail || samePhone;
+  });
 
   if (exists) {
-    return res.status(409).json({ error: String(exists.username || "").toLowerCase() === username.toLowerCase() ? "USERNAME_EXISTS" : "EMAIL_EXISTS" });
+    if (String(exists.username || "").toLowerCase() === username.toLowerCase()) return res.status(409).json({ error: "USERNAME_EXISTS" });
+    if (email && String(exists.email || "").toLowerCase() === email) return res.status(409).json({ error: "EMAIL_EXISTS" });
+    return res.status(409).json({ error: "PHONE_EXISTS" });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
@@ -462,8 +770,17 @@ app.post("/auth/register", async (req, res) => {
     id: makeId("user"),
     username,
     email,
+    phone,
     passwordHash,
     deviceId,
+    authMethods: {
+      password: true,
+      email: !!email,
+      phone: !!phone,
+      google: false,
+      facebook: false,
+      tiktok: false
+    },
     inviteCode: "",
     referredBy: "",
     referredByCode: inviteCodeV138J || "",
@@ -472,8 +789,11 @@ app.post("/auth/register", async (req, res) => {
     wins: 0,
     losses: 0,
     level: 1,
+    vipLevel: 0,
+    walletLog: [],
+    tasks: {},
     avatarUri: "",
-    countryCode: "YE",
+    countryCode: /^[A-Z]{2}$/.test(registerCountryCodeV227) ? registerCountryCodeV227 : "YE",
     friends: [],
     createdAt: new Date().toISOString()
   };
@@ -493,16 +813,19 @@ app.post("/auth/register", async (req, res) => {
   });
 });
 
-app.post("/auth/login", async (req, res) => {
-  const username = String(req.body.username || "").trim();
+app.post("/auth/login", authRateLimitV416A, async (req, res) => {
+  const identifier = String(req.body.identifier || req.body.username || req.body.email || req.body.phone || "").trim();
   const password = String(req.body.password || "");
   const deviceId = normalizeDeviceIdV138G(req.body.deviceId);
 
+
+
+  if (!identifier || !password) {
+    return res.status(400).json({ error: "CONTACT_REQUIRED" });
+  }
+
   const db = readDb();
-  const loginKey = username.toLowerCase();
-  const user = db.users.find(
-    (u) => u.username.toLowerCase() === loginKey || String(u.email || "").toLowerCase() === loginKey
-  );
+  const user = findUserByIdentifierV201(db, identifier);
 
   if (!user) return res.status(401).json({ error: "INVALID_LOGIN" });
 
@@ -600,7 +923,7 @@ const REWARDED_AD_COINS_V138REAL = 1500;
 const REWARDED_AD_DAILY_LIMIT_V138REAL = 50;
 const REWARDED_AD_COOLDOWN_MS_V138REAL = 5 * 60 * 1000;
 
-app.post("/economy/claim-daily", requireAuth, (req, res) => {
+app.post("/economy/claim-daily", requireAuth, economyRateLimitV416A, (req, res) => {
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
@@ -633,7 +956,7 @@ app.post("/economy/claim-daily", requireAuth, (req, res) => {
   });
 });
 
-app.post("/economy/claim-rewarded-ad", requireAuth, (req, res) => {
+app.post("/economy/claim-rewarded-ad", requireAuth, economyRateLimitV416A, (req, res) => {
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
@@ -692,13 +1015,916 @@ app.post("/economy/claim-rewarded-ad", requireAuth, (req, res) => {
 });
 
 
+
+app.post("/economy/claim-task", requireAuth, economyRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  const taskId = String(req.body.taskId || "").slice(0, 40);
+  const rewards = {
+    login: 500,
+    play_match: 800,
+    send_message: 600,
+    invite_friend: 1200,
+    post_share: 700,
+    like_post: 400
+  };
+
+  const added = Number(rewards[taskId] || 0);
+  if (!added) return res.status(400).json({ error: "TASK_NOT_FOUND", message: "المهمة غير موجودة." });
+
+  const today = todayKeyV138REAL();
+  user.tasks = user.tasks || {};
+  user.tasks[today] = user.tasks[today] || {};
+
+  if (user.tasks[today][taskId]) {
+    return res.status(409).json({
+      error: "TASK_ALREADY_CLAIMED",
+      message: "استلمت جائزة هذه المهمة اليوم بالفعل.",
+      user: publicUser(user),
+      tasks: user.tasks[today]
+    });
+  }
+
+  user.tasks[today][taskId] = new Date().toISOString();
+  user.coins = Number(user.coins || 0) + added;
+  user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
+  user.walletLog.unshift({ type: "task", taskId, coins: added, at: new Date().toISOString() });
+  user.walletLog = user.walletLog.slice(0, 30);
+
+  writeDb(db);
+  emitUserUpdateV136IK(user.id);
+
+  res.json({
+    ok: true,
+    type: "task",
+    taskId,
+    addedCoins: added,
+    user: publicUser(user),
+    tasks: user.tasks[today]
+  });
+});
+
+// V415A_VIP_MONTHLY_FOUNDATION_NO_ADS_DAILY_BONUS_GIFT_DISCOUNT_SAFE
+// أساس اشتراك VIP شهري داخل النظام للاختبار بالكويـنز فقط، والدفع الحقيقي يربط لاحقًا بـ Google Play Billing.
+const VIP_SUBSCRIPTION_DAYS_V415A = 30;
+const VIP_MONTHLY_PRICE_COINS_V415A = 5000;
+const VIP_DAILY_BONUS_COINS_V415A = 3000;
+const VIP_GIFT_DISCOUNT_PERCENT_V415A = 20;
+
+function isVipSubscriptionActiveV415A(user) {
+  const status = String(user?.vipSubscriptionStatus || "").toLowerCase();
+  const expiresMs = user?.vipExpiresAt ? new Date(user.vipExpiresAt).getTime() : 0;
+  return status === "active" && Number.isFinite(expiresMs) && expiresMs > Date.now();
+}
+
+function addVipDaysV415A(baseIso, days) {
+  const baseMs = baseIso ? new Date(baseIso).getTime() : 0;
+  const safeBase = Number.isFinite(baseMs) && baseMs > Date.now() ? baseMs : Date.now();
+  return new Date(safeBase + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+app.post("/vip/activate", requireAuth, economyRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  const level = 1;
+  const price = VIP_MONTHLY_PRICE_COINS_V415A;
+
+  if (Number(user.coins || 0) < price) {
+    return res.status(402).json({
+      error: "NOT_ENOUGH_COINS",
+      message: `رصيدك لا يكفي لتفعيل VIP الشهري. تحتاج ${price} كوينز.`,
+      user: publicUser(user)
+    });
+  }
+
+  const wasActive = isVipSubscriptionActiveV415A(user);
+  const nextExpiresAt = addVipDaysV415A(user.vipExpiresAt, VIP_SUBSCRIPTION_DAYS_V415A);
+
+  user.coins = Number(user.coins || 0) - price;
+  user.vipLevel = Math.max(Number(user.vipLevel || 0), level);
+  user.vipActivatedAt = user.vipActivatedAt || new Date().toISOString();
+  user.vipSubscriptionStatus = "active";
+  user.vipPlan = "monthly_vip_v415a";
+  user.vipExpiresAt = nextExpiresAt;
+  user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
+  user.walletLog.unshift({
+    type: "vip_subscription",
+    plan: user.vipPlan,
+    level,
+    coins: -price,
+    days: VIP_SUBSCRIPTION_DAYS_V415A,
+    expiresAt: nextExpiresAt,
+    at: new Date().toISOString()
+  });
+  user.walletLog = user.walletLog.slice(0, 30);
+
+  writeDb(db);
+  emitUserUpdateV136IK(user.id);
+
+  res.json({
+    ok: true,
+    type: "vip_subscription",
+    level,
+    price,
+    days: VIP_SUBSCRIPTION_DAYS_V415A,
+    expiresAt: nextExpiresAt,
+    message: wasActive ? "تم تمديد VIP الشهري 30 يوم ✅" : "تم تفعيل VIP الشهري 30 يوم ✅",
+    user: publicUser(user)
+  });
+});
+
+app.post("/vip/claim-daily-bonus", requireAuth, economyRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  if (!isVipSubscriptionActiveV415A(user)) {
+    return res.status(403).json({
+      error: "VIP_SUBSCRIPTION_REQUIRED",
+      message: "مكافأة VIP تحتاج اشتراك VIP شهري فعال.",
+      user: publicUser(user)
+    });
+  }
+
+  const today = todayKeyV138REAL();
+  user.economy = user.economy || {};
+  const lastClaim = String(user.vipDailyBonusDate || user.economy.vipDailyBonusDate || "");
+  if (lastClaim === today) {
+    return res.status(409).json({
+      error: "VIP_DAILY_ALREADY_CLAIMED",
+      message: "استلمت مكافأة VIP اليوم بالفعل.",
+      user: publicUser(user),
+      economy: user.economy
+    });
+  }
+
+  user.vipDailyBonusDate = today;
+  user.economy.vipDailyBonusDate = today;
+  user.economy.lastVipDailyBonusAt = new Date().toISOString();
+  user.coins = Number(user.coins || 0) + VIP_DAILY_BONUS_COINS_V415A;
+  user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
+  user.walletLog.unshift({ type: "vip_daily_bonus", coins: VIP_DAILY_BONUS_COINS_V415A, at: new Date().toISOString() });
+  user.walletLog = user.walletLog.slice(0, 30);
+
+  writeDb(db);
+  emitUserUpdateV136IK(user.id);
+
+  res.json({
+    ok: true,
+    type: "vip_daily_bonus",
+    addedCoins: VIP_DAILY_BONUS_COINS_V415A,
+    user: publicUser(user),
+    economy: user.economy
+  });
+});
+
+
+
+
+
+function ensureOwnerEmailV388B(db) {
+  if (!db || !Array.isArray(db.users)) return false;
+
+  const owner = db.users.find((u) => String(u.username || "").trim().toLowerCase() === "hady22333");
+  if (!owner) return false;
+
+  let changed = false;
+
+  if (String(owner.email || "").trim().toLowerCase() !== "hadyalhsamy6@gmail.com") {
+    owner.email = "hadyalhsamy6@gmail.com";
+    changed = true;
+  }
+
+  owner.isAdmin = true;
+  owner.role = "owner";
+
+  return changed;
+}
+
+function isSupportAdminV388(user) {
+  if (!user) return false;
+
+  const id = String(user.id || "");
+  const email = String(user.email || "").trim().toLowerCase();
+  const username = String(user.username || "").trim().toLowerCase();
+  const role = String(user.role || "").trim().toLowerCase();
+
+  const envIds = String(process.env.ANA_ADMIN_USER_IDS || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  const envEmails = String(process.env.ANA_ADMIN_EMAILS || "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (user.isAdmin === true || role === "admin" || role === "owner") return true;
+  if (envIds.includes(id)) return true;
+  if (envEmails.includes(email)) return true;
+
+  // صاحب التطبيق الحالي
+  if (email === "hadyalhsamy6@gmail.com") return true;
+  if (username === "hady22333") return true;
+  if (username === "hadyalhsamy6") return true;
+
+  return false;
+}
+
+function publicMySupportMessageV393(m) {
+  const hasReply = !!String(m.adminReplyText || "").trim();
+  return {
+    id: String(m.id || ""),
+    type: String(m.type || "suggestion"),
+    text: String(m.text || ""),
+    mediaUrl: String(m.mediaUrl || ""),
+    mediaType: String(m.mediaType || ""),
+    status: String(m.status || "new"),
+    adminReplyText: String(m.adminReplyText || ""),
+    adminReplyFrom: hasReply ? "إدارة التطبيق" : "",
+    adminReplyAt: String(m.adminReplyAt || ""),
+    createdAt: String(m.createdAt || "")
+  };
+}
+
+function publicSupportMessageV388(m) {
+  return {
+    id: String(m.id || ""),
+    userId: String(m.userId || ""),
+    username: String(m.username || "لاعب"),
+    countryCode: String(m.countryCode || "YE"),
+    type: String(m.type || "suggestion"),
+    text: String(m.text || ""),
+    sourceScreen: String(m.sourceScreen || ""),
+    mediaUrl: String(m.mediaUrl || ""),
+    mediaType: String(m.mediaType || ""),
+    adminReplyText: String(m.adminReplyText || ""),
+    adminReplyFrom: String(m.adminReplyText || "").trim() ? "إدارة التطبيق" : "",
+    adminReplyAt: String(m.adminReplyAt || ""),
+    status: String(m.status || "new"),
+    createdAt: String(m.createdAt || "")
+  };
+}
+
+app.get("/support/my/messages", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const messages = db.supportMessagesV375
+    .filter((m) => String(m.userId) === String(me.id))
+    .filter((m) => !Array.isArray(m.hiddenForUserIds) || !m.hiddenForUserIds.map((x) => String(x)).includes(String(me.id)))
+    .slice(0, 100)
+    .map(publicMySupportMessageV393);
+
+  res.json({ ok: true, messages });
+});
+
+app.delete("/support/my/messages/:messageId", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const messageId = String(req.params.messageId || "");
+  const msg = db.supportMessagesV375.find((m) => String(m.id) === messageId && String(m.userId) === String(me.id));
+
+  if (!msg) {
+    return res.status(404).json({ error: "SUPPORT_MESSAGE_NOT_FOUND", message: "الرسالة غير موجودة." });
+  }
+
+  const hiddenForUserIds = Array.isArray(msg.hiddenForUserIds) ? msg.hiddenForUserIds.map((x) => String(x)) : [];
+  if (!hiddenForUserIds.includes(String(me.id))) hiddenForUserIds.push(String(me.id));
+  msg.hiddenForUserIds = hiddenForUserIds;
+  msg.hiddenForUserAt = new Date().toISOString();
+
+  writeDb(db);
+
+  res.json({ ok: true, message: "تم حذف الرسالة من عندك فقط.", deletedId: messageId });
+});
+
+app.get("/admin/support/messages", requireAuth, adminRateLimitV416A, (req, res) => {
+  const db = readDb();
+  if (ensureOwnerEmailV388B(db)) writeDb(db);
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (!isSupportAdminV388(me)) {
+    return res.status(403).json({ error: "ADMIN_ONLY", message: "هذه الصفحة لصاحب التطبيق فقط." });
+  }
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const messages = db.supportMessagesV375
+    .slice(0, 300)
+    .map(publicSupportMessageV388);
+
+  res.json({
+    ok: true,
+    isAdmin: true,
+    total: db.supportMessagesV375.length,
+    messages
+  });
+});
+
+app.delete("/admin/support/messages/:messageId", requireAuth, adminRateLimitV416A, (req, res) => {
+  const db = readDb();
+
+  if (typeof ensureOwnerEmailV388B === "function" && ensureOwnerEmailV388B(db)) writeDb(db);
+
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  if (!isSupportAdminV388(me)) {
+    return res.status(403).json({ error: "ADMIN_ONLY", message: "الحذف لصاحب التطبيق فقط." });
+  }
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const messageId = String(req.params.messageId || "");
+  const idx = db.supportMessagesV375.findIndex((m) => String(m.id) === messageId);
+
+  if (idx < 0) {
+    return res.status(404).json({ error: "SUPPORT_MESSAGE_NOT_FOUND", message: "الرسالة غير موجودة." });
+  }
+
+  const deleted = db.supportMessagesV375.splice(idx, 1)[0];
+  writeDb(db);
+
+  res.json({
+    ok: true,
+    message: "تم حذف رسالة الدعم.",
+    deletedId: String(deleted?.id || messageId)
+  });
+});
+
+app.patch("/admin/support/messages/:messageId/content", requireAuth, adminRateLimitV416A, (req, res) => {
+  const db = readDb();
+  if (typeof ensureOwnerEmailV388B === "function" && ensureOwnerEmailV388B(db)) writeDb(db);
+
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  if (!isSupportAdminV388(me)) {
+    return res.status(403).json({ error: "ADMIN_ONLY", message: "هذه الصفحة لصاحب التطبيق فقط." });
+  }
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const messageId = String(req.params.messageId || "");
+  const msg = db.supportMessagesV375.find((m) => String(m.id) === messageId);
+
+  if (!msg) {
+    return res.status(404).json({ error: "SUPPORT_MESSAGE_NOT_FOUND", message: "الرسالة غير موجودة." });
+  }
+
+  const clearText = req.body && req.body.clearText === true;
+  const clearImage = req.body && req.body.clearImage === true;
+
+  if (!clearText && !clearImage) {
+    return res.status(400).json({ error: "NO_CONTENT_CHANGE", message: "لم يتم اختيار حذف النص أو الصورة." });
+  }
+
+  if (clearText) {
+    msg.text = "";
+    msg.textClearedByAdmin = true;
+    msg.textClearedAt = new Date().toISOString();
+  }
+
+  if (clearImage) {
+    msg.mediaUrl = "";
+    msg.mediaType = "";
+    msg.imageClearedByAdmin = true;
+    msg.imageClearedAt = new Date().toISOString();
+  }
+
+  msg.updatedAt = new Date().toISOString();
+  writeDb(db);
+
+  res.json({ ok: true, message: publicSupportMessageV388(msg) });
+});
+
+app.post("/admin/support/messages/:messageId/reply", requireAuth, adminRateLimitV416A, (req, res) => {
+  const db = readDb();
+  if (typeof ensureOwnerEmailV388B === "function" && ensureOwnerEmailV388B(db)) writeDb(db);
+
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  if (!isSupportAdminV388(me)) {
+    return res.status(403).json({ error: "ADMIN_ONLY", message: "هذه الصفحة لصاحب التطبيق فقط." });
+  }
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const messageId = String(req.params.messageId || "");
+  const msg = db.supportMessagesV375.find((m) => String(m.id) === messageId);
+
+  if (!msg) {
+    return res.status(404).json({ error: "SUPPORT_MESSAGE_NOT_FOUND", message: "الرسالة غير موجودة." });
+  }
+
+  const text = String(req.body.text || "").trim().slice(0, 500);
+  if (text.length < 2) {
+    return res.status(400).json({ error: "REPLY_EMPTY", message: "اكتب ردًا قصيرًا أولًا." });
+  }
+
+  msg.adminReplyText = text;
+  msg.adminReplyFrom = "إدارة التطبيق";
+  msg.adminReplyAt = new Date().toISOString();
+  msg.updatedAt = new Date().toISOString();
+
+  writeDb(db);
+
+  res.json({ ok: true, message: publicSupportMessageV388(msg) });
+});
+
+app.patch("/admin/support/messages/:messageId/status", requireAuth, adminRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+  if (!isSupportAdminV388(me)) {
+    return res.status(403).json({ error: "ADMIN_ONLY", message: "هذه الصفحة لصاحب التطبيق فقط." });
+  }
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const messageId = String(req.params.messageId || "");
+  const statusRaw = String(req.body.status || "").trim().toLowerCase();
+  const status = ["new", "reviewing", "resolved"].includes(statusRaw) ? statusRaw : "new";
+
+  const msg = db.supportMessagesV375.find((m) => String(m.id) === messageId);
+  if (!msg) return res.status(404).json({ error: "SUPPORT_MESSAGE_NOT_FOUND", message: "الرسالة غير موجودة." });
+
+  msg.status = status;
+  msg.updatedAt = new Date().toISOString();
+
+  writeDb(db);
+
+  res.json({
+    ok: true,
+    message: publicSupportMessageV388(msg)
+  });
+});
+
+app.post("/support/feedback", requireAuth, socialRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => String(u.id) === String(req.user.id));
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  const rawType = String(req.body.type || "suggestion").trim().toLowerCase();
+  const type = ["suggestion", "complaint", "bug", "report"].includes(rawType) ? rawType : "suggestion";
+  const text = String(req.body.text || "").trim().slice(0, 700);
+  const sourceScreen = String(req.body.sourceScreen || "app").trim().slice(0, 80);
+  const safeSupportMediaTypeV390 = String(req.body.mediaType || "").trim() === "image" ? "image" : "";
+  const safeSupportMediaUrlV390 = safeSupportMediaTypeV390 ? String(req.body.mediaUrl || "").trim().slice(0, 900) : "";
+
+  if (text.length < 3 && !safeSupportMediaUrlV390) {
+    return res.status(400).json({ error: "SUPPORT_EMPTY", message: "اكتب رسالتك أو أرفق صورة للمشكلة." });
+  }
+
+  db.supportMessagesV375 = Array.isArray(db.supportMessagesV375) ? db.supportMessagesV375 : [];
+
+  const now = Date.now();
+  const last = db.supportMessagesV375.find((m) => String(m.userId) === String(me.id));
+  if (last && now - (Date.parse(last.createdAt || "") || 0) < 30000) {
+    return res.status(429).json({ error: "SUPPORT_TOO_FAST", message: "انتظر قليلًا قبل إرسال رسالة جديدة." });
+  }
+
+  const message = {
+    id: makeId("support"),
+    userId: String(me.id),
+    username: String(me.username || "لاعب"),
+    countryCode: String(me.countryCode || "YE"),
+    type,
+    text: text || (safeSupportMediaUrlV390 ? "صورة مرفقة" : ""),
+    sourceScreen,
+    mediaUrl: safeSupportMediaUrlV390,
+    mediaType: safeSupportMediaTypeV390,
+    status: "new",
+    createdAt: new Date().toISOString()
+  };
+
+  db.supportMessagesV375.unshift(message);
+  db.supportMessagesV375 = db.supportMessagesV375.slice(0, 3000);
+
+  writeDb(db);
+
+  res.json({
+    ok: true,
+    message: "تم استلام رسالتك بنجاح، شكرًا لمساعدتنا في تحسين التطبيق.",
+    feedback: message
+  });
+});
+
+app.post("/posts/media", requireAuth, uploadRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  const mediaType = String(req.body.mediaType || "");
+  if (!["image", "video"].includes(mediaType)) {
+    return res.status(400).json({ error: "BAD_MEDIA_TYPE", message: "نوع المرفق غير صحيح." });
+  }
+
+  const base64 = String(req.body.base64 || "");
+  if (!base64 || base64.length < 20) {
+    return res.status(400).json({ error: "MEDIA_EMPTY", message: "المرفق فارغ." });
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+  const maxBytes = mediaType === "video" ? 12 * 1024 * 1024 : 4 * 1024 * 1024;
+  if (buffer.length > maxBytes) {
+    return res.status(413).json({ error: "MEDIA_TOO_LARGE", message: "حجم المرفق كبير جدًا." });
+  }
+
+  const ext = mediaType === "video" ? "mp4" : "jpg";
+  const fileName = `${makeId("post_media")}.${ext}`;
+  const filePath = path.join(UPLOADS_DIR_V154, fileName);
+
+  fs.writeFileSync(filePath, buffer);
+
+  res.json({
+    ok: true,
+    mediaType,
+    url: `${req.protocol}://${req.get("host")}/uploads/${fileName}`
+  });
+});
+
+
+app.get("/posts/feed", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const scope = String(req.query.scope || "me");
+  const myId = String(me.id);
+  const friendIds = Array.isArray(me.friends) ? me.friends.map(String) : [];
+
+  let posts = db.posts;
+  if (scope === "me") {
+    posts = posts.filter((p) => String(p.userId) === myId);
+  } else if (scope === "friends") {
+    posts = posts.filter((p) => friendIds.includes(String(p.userId)) && canViewPostV368(db, p, me));
+  } else {
+    posts = posts.filter((p) => p && p.id && canViewPostV368(db, p, me) && normalizePostVisibilityV368(p.visibility || p.privacy || p.audience || "public") === "public");
+  }
+
+  posts = posts
+    .filter((p) => !shouldHidePostByReportsV149(db, p, myId))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, 150)
+    .map((p) => publicPostV143(db, p, myId));
+
+  res.json({ ok: true, scope, posts });
+});
+
+
+app.get("/posts/me", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const posts = db.posts
+    .filter((p) => String(p.userId) === String(me.id))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, 100)
+    .map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      username: me.username,
+      countryCode: me.countryCode || "YE",
+      text: p.text,
+      createdAt: p.createdAt,
+      visibility: normalizePostVisibilityV368(p.visibility || p.privacy || p.audience || "public"),
+      likes: Array.isArray(p.likes) ? p.likes.length : 0
+    }));
+
+  res.json({ ok: true, posts });
+});
+
+app.post("/posts", requireAuth, socialRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  const text = String(req.body.text || "").trim().slice(0, 500);
+  const rawMediaUrlV152 = String(req.body.mediaUrl || "").trim().slice(0, 900);
+  const rawMediaTypeV152 = String(req.body.mediaType || "").trim();
+  const safeMediaTypeV152 = rawMediaUrlV152 && ["image", "video"].includes(rawMediaTypeV152) ? rawMediaTypeV152 : "";
+  const safeVisibilityV368 = normalizePostVisibilityV368(req.body.visibility || req.body.privacy || req.body.audience || "public");
+
+  if (!text && !safeMediaTypeV152) {
+    return res.status(400).json({ error: "POST_EMPTY", message: "اكتب نصًا أو أرفق صورة/فيديو أولًا." });
+  }
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+
+  const post = {
+    id: makeId("post"),
+    userId: String(me.id),
+    text,
+    mediaUrl: safeMediaTypeV152 ? rawMediaUrlV152 : "",
+    mediaType: safeMediaTypeV152,
+    visibility: safeVisibilityV368,
+    likes: [],
+    comments: [],
+    createdAt: new Date().toISOString()
+  };
+  db.posts.unshift(post);
+  db.posts = db.posts.slice(0, 2000);
+
+  writeDb(db);
+
+  const posts = db.posts
+    .filter((p) => String(p.userId) === String(me.id))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, 100)
+    .map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      username: me.username,
+      countryCode: me.countryCode || "YE",
+      text: p.text,
+      createdAt: p.createdAt,
+      visibility: normalizePostVisibilityV368(p.visibility || p.privacy || p.audience || "public"),
+      likes: Array.isArray(p.likes) ? p.likes.length : 0
+    }));
+
+  res.json({ ok: true, post, posts });
+});
+
+
+
+
+
+
+app.get("/posts/reports/me", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  db.postReports = Array.isArray(db.postReports) ? db.postReports : [];
+
+  const myPostIds = new Set(
+    db.posts
+      .filter((p) => String(p.userId) === String(me.id))
+      .map((p) => String(p.id))
+  );
+
+  const reports = db.postReports
+    .filter((r) => myPostIds.has(String(r.postId)))
+    .slice(0, 100)
+    .map((r) => {
+      const post = db.posts.find((p) => String(p.id) === String(r.postId)) || {};
+      const reporter = db.users.find((u) => String(u.id) === String(r.reporterUserId)) || {};
+      return {
+        id: r.id,
+        postId: r.postId,
+        postText: String(post.text || ""),
+        reporterUserId: r.reporterUserId,
+        reporterUsername: reporter.username || "لاعب",
+        reason: r.reason || "",
+        createdAt: r.createdAt || ""
+      };
+    });
+
+  res.json({ ok: true, reports });
+});
+
+
+app.post("/posts/:postId/report", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  db.postReports = Array.isArray(db.postReports) ? db.postReports : [];
+
+  const postId = String(req.params.postId || "");
+  const post = db.posts.find((p) => String(p.id) === postId);
+  if (!post) return res.status(404).json({ error: "POST_NOT_FOUND", message: "المنشور غير موجود." });
+
+  if (String(post.userId) === String(me.id)) {
+    return res.status(400).json({ error: "CANNOT_REPORT_OWN_POST", message: "لا يمكنك الإبلاغ عن منشورك." });
+  }
+
+  const exists = db.postReports.find((r) =>
+    String(r.postId) === postId &&
+    String(r.reporterUserId) === String(me.id)
+  );
+
+  if (exists) {
+    return res.json({ ok: true, alreadyReported: true, message: "تم إرسال بلاغ سابقًا." });
+  }
+
+  const report = {
+    id: makeId("post_report"),
+    postId,
+    postOwnerUserId: String(post.userId || ""),
+    reporterUserId: String(me.id),
+    reason: String(req.body.reason || "reported").slice(0, 120),
+    createdAt: new Date().toISOString()
+  };
+
+  db.postReports.unshift(report);
+  db.postReports = db.postReports.slice(0, 2000);
+
+  writeDb(db);
+
+  res.json({ ok: true, report });
+});
+
+
+
+app.patch("/posts/:postId/visibility", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const postId = String(req.params.postId || "");
+  const post = db.posts.find((p) => String(p.id) === postId);
+  if (!post) return res.status(404).json({ error: "POST_NOT_FOUND", message: "المنشور غير موجود." });
+
+  if (String(post.userId) !== String(me.id)) {
+    return res.status(403).json({ error: "NOT_POST_OWNER", message: "لا يمكنك تعديل منشور ليس لك." });
+  }
+
+  post.hiddenByOwner = !!req.body.hidden;
+  post.hiddenByOwnerAt = post.hiddenByOwner ? new Date().toISOString() : "";
+
+  // V368: allow changing audience safely if sent later by the app.
+  if (req.body.visibility !== undefined || req.body.privacy !== undefined || req.body.audience !== undefined) {
+    post.visibility = normalizePostVisibilityV368(req.body.visibility || req.body.privacy || req.body.audience || post.visibility || "public");
+  }
+
+  writeDb(db);
+
+  res.json({ ok: true, post: publicPostV143(db, post, me.id) });
+});
+
+
+app.get("/posts/:postId", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const postId = String(req.params.postId || "");
+  const post = db.posts.find((p) => String(p.id) === postId);
+  if (!post) return res.status(404).json({ error: "POST_NOT_FOUND", message: "المنشور غير موجود." });
+  if (!canViewPostV368(db, post, me)) return res.status(403).json({ error: "POST_NOT_VISIBLE_V368_DETAIL", message: "لا يمكنك مشاهدة هذا المنشور." });
+
+  const base = publicPostV143(db, post, me.id);
+  const comments = (Array.isArray(post.comments) ? post.comments : []).map((c) => {
+    const cu = db.users.find((u) => String(u.id) === String(c.userId)) || {};
+    return {
+      id: c.id,
+      userId: c.userId,
+      username: cu.username || "لاعب",
+      countryCode: cu.countryCode || "YE",
+      text: String(c.text || ""),
+      createdAt: c.createdAt || "",
+      canDelete: String(c.userId) === String(me.id)
+    };
+  }).reverse();
+
+  res.json({ ok: true, post: { ...base, comments, commentsCount: comments.length } });
+});
+
+
+app.post("/posts/:postId/comments", requireAuth, socialRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const postId = String(req.params.postId || "");
+  const post = db.posts.find((p) => String(p.id) === postId);
+  if (!post) return res.status(404).json({ error: "POST_NOT_FOUND", message: "المنشور غير موجود." });
+  if (!canViewPostV368(db, post, me)) return res.status(403).json({ error: "POST_NOT_VISIBLE_V368_COMMENT", message: "لا يمكنك التعليق على هذا المنشور." });
+
+  const text = String(req.body.text || "").trim().slice(0, 220);
+  if (!text) return res.status(400).json({ error: "COMMENT_EMPTY", message: "اكتب نص التعليق أولًا." });
+
+  post.comments = Array.isArray(post.comments) ? post.comments : [];
+  const comment = {
+    id: makeId("comment"),
+    userId: String(me.id),
+    text,
+    createdAt: new Date().toISOString()
+  };
+  post.comments.push(comment);
+  post.comments = post.comments.slice(-300);
+
+  writeDb(db);
+
+  res.json({ ok: true, comment, post: publicPostV143(db, post, me.id) });
+});
+
+
+
+app.delete("/posts/:postId/comments/:commentId", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const postId = String(req.params.postId || "");
+  const commentId = String(req.params.commentId || "");
+  const post = db.posts.find((p) => String(p.id) === postId);
+  if (!post) return res.status(404).json({ error: "POST_NOT_FOUND", message: "المنشور غير موجود." });
+
+  post.comments = Array.isArray(post.comments) ? post.comments : [];
+  const before = post.comments.length;
+  post.comments = post.comments.filter((c) => !(String(c.id) === commentId && String(c.userId) === String(me.id)));
+
+  if (post.comments.length === before) {
+    return res.status(404).json({ error: "COMMENT_NOT_FOUND", message: "التعليق غير موجود أو ليس لك." });
+  }
+
+  writeDb(db);
+
+  res.json({ ok: true, deleted: true, post: publicPostV143(db, post, me.id) });
+});
+
+
+app.post("/posts/:postId/like", requireAuth, socialRateLimitV416A, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const postId = String(req.params.postId || "");
+  const post = db.posts.find((p) => String(p.id) === postId);
+  if (!post) return res.status(404).json({ error: "POST_NOT_FOUND", message: "المنشور غير موجود." });
+  if (!canViewPostV368(db, post, me)) return res.status(403).json({ error: "POST_NOT_VISIBLE_V368_LIKE", message: "لا يمكنك التفاعل مع هذا المنشور." });
+
+  post.likes = Array.isArray(post.likes) ? post.likes.map(String) : [];
+  const myId = String(me.id);
+  if (post.likes.includes(myId)) {
+    post.likes = post.likes.filter((id) => String(id) !== myId);
+  } else {
+    post.likes.push(myId);
+  }
+
+  writeDb(db);
+  res.json({ ok: true, post: publicPostV143(db, post, myId) });
+});
+
+
+app.delete("/posts/:postId", requireAuth, (req, res) => {
+  const db = readDb();
+  const me = db.users.find((u) => u.id === req.user.id);
+  if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
+
+  const postId = String(req.params.postId || "");
+  db.posts = Array.isArray(db.posts) ? db.posts : [];
+  const before = db.posts.length;
+  db.posts = db.posts.filter((p) => !(String(p.id) === postId && String(p.userId) === String(me.id)));
+
+  if (db.posts.length === before) {
+    return res.status(404).json({ error: "POST_NOT_FOUND", message: "المنشور غير موجود." });
+  }
+
+  writeDb(db);
+
+  const posts = db.posts
+    .filter((p) => String(p.userId) === String(me.id))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, 100)
+    .map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      username: me.username,
+      countryCode: me.countryCode || "YE",
+      text: p.text,
+      createdAt: p.createdAt,
+      visibility: normalizePostVisibilityV368(p.visibility || p.privacy || p.audience || "public"),
+      likes: Array.isArray(p.likes) ? p.likes.length : 0
+    }));
+
+  res.json({ ok: true, deleted: true, posts });
+});
+
+
 app.patch("/me/profile", requireAuth, (req, res) => {
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
 
   const rawAvatarUri = String(req.body.avatarUri || "");
-  const avatarUri = rawAvatarUri.slice(0, 350000);
+  const avatarUri = rawAvatarUri.slice(0, 1500000);
   const countryCode = String(req.body.countryCode || "YE").trim().toUpperCase().slice(0, 2) || "YE";
   const email = String(req.body.email || user.email || "").trim().toLowerCase();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -772,11 +1998,34 @@ app.get("/friends", requireAuth, (req, res) => {
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
 
+  const getFriendCurrentGameV105 = (friendId) => {
+    for (const room of rooms.values()) {
+      if (!room || room.status === "finished") continue;
+      const found = (room.players || []).find((p) => String(p.id) === String(friendId));
+      if (!found) continue;
+      if (room.game === "domino") return "domino";
+      if (room.game === "chess") return "chess";
+      if (room.game === "carrom") return "carrom";
+      if (room.game === "billiards") return "billiards";
+      return String(room.game || "playing");
+    }
+    return "";
+  };
+
   const friendIds = Array.isArray(user.friends) ? user.friends : [];
   const friends = friendIds
     .map((id) => db.users.find((u) => u.id === id))
     .filter(Boolean)
-    .map(publicUser);
+    .map((friend) => {
+      const base = publicUser(friend);
+      const currentGame = getFriendCurrentGameV105(friend.id);
+      return {
+        ...base,
+        isOnline: connectedUserSocketsV137O.has(String(friend.id)),
+        currentGame,
+        status: currentGame || friend.presenceStatusV139 || (connectedUserSocketsV137O.has(String(friend.id)) ? "online" : "offline")
+      };
+    });
 
   const requests = (db.friendRequests || [])
     .filter((r) => r.status === "pending" && (r.fromUserId === user.id || r.toUserId === user.id))
@@ -785,12 +2034,12 @@ app.get("/friends", requireAuth, (req, res) => {
   res.json({ friends, requests });
 });
 
-app.post("/friends/request", requireAuth, handleFriendRequestV138FR);
+app.post("/friends/request", requireAuth, socialRateLimitV416A, handleFriendRequestV138FR);
 
 // توافق مع الزر القديم: صار يرسل طلب صداقة بدل إضافة مباشرة
-app.post("/friends/add", requireAuth, handleFriendRequestV138FR);
+app.post("/friends/add", requireAuth, socialRateLimitV416A, handleFriendRequestV138FR);
 
-app.post("/friends/respond", requireAuth, (req, res) => {
+app.post("/friends/respond", requireAuth, socialRateLimitV416A, (req, res) => {
   const requestId = String(req.body.requestId || req.body.id || "").trim();
   const action = String(req.body.action || "").trim().toLowerCase();
 
@@ -844,7 +2093,7 @@ app.get("/friends/chat/:friendId", requireAuth, (req, res) => {
   res.json({ ok: true, friend: publicUser(friend), messages: publicPrivateMessagesV138PC(chat, me.id) });
 });
 
-app.post("/friends/chat/:friendId", requireAuth, (req, res) => {
+app.post("/friends/chat/:friendId", requireAuth, socialRateLimitV416A, (req, res) => {
   const friendId = String(req.params.friendId || "").trim();
   const text = String(req.body.text || "").trim().slice(0, 500);
   if (!text) return res.status(400).json({ error: "EMPTY_MESSAGE" });
@@ -865,6 +2114,24 @@ app.post("/friends/chat/:friendId", requireAuth, (req, res) => {
     createdAt: new Date().toISOString()
   };
   chat.messages.push(msg);
+
+  // V139_PRIVATE_CHAT_SOCKET_NOTIFY_SAFE:
+  try {
+    for (const s of io.sockets.sockets.values()) {
+      if (String(s?.user?.id || "") === String(friend.id)) {
+        io.to(s.id).emit("private:message", {
+          ...msg,
+          fromUserId: String(me.id),
+          senderId: String(me.id),
+          fromUsername: me.username,
+          toUserId: String(friend.id)
+        });
+      }
+    }
+  } catch (e) {
+    console.log("V139 private notify failed:", e?.message || e);
+  }
+
   if (chat.messages.length > 300) chat.messages = chat.messages.slice(-300);
 
   writeDb(db);
@@ -886,7 +2153,7 @@ app.delete("/friends/chat/:friendId", requireAuth, (req, res) => {
   res.json({ ok: true, cleared: true, messages: [] });
 });
 
-app.post("/friends/remove", requireAuth, (req, res) => {
+app.post("/friends/remove", requireAuth, socialRateLimitV416A, (req, res) => {
   const friendId = String(req.body.friendId || req.body.userId || "").trim();
   if (!friendId) return res.status(400).json({ error: "BAD_FRIEND_ID" });
 
@@ -904,7 +2171,7 @@ app.post("/friends/remove", requireAuth, (req, res) => {
   res.json({ ok: true, removed: true });
 });
 
-app.post("/friends/block", requireAuth, (req, res) => {
+app.post("/friends/block", requireAuth, socialRateLimitV416A, (req, res) => {
   const targetUserId = String(req.body.targetUserId || req.body.friendId || req.body.userId || "").trim();
   if (!targetUserId) return res.status(400).json({ error: "BAD_TARGET_ID" });
 
@@ -949,7 +2216,7 @@ app.post("/friends/block", requireAuth, (req, res) => {
 
 // V138_GOOGLE_PLAY_UGC_REPORT_SAFE:
 // إبلاغ داخل التطبيق عن مستخدم/رسالة لدعم سياسة Google Play للمحتوى الذي ينشئه المستخدمون.
-app.post("/friends/report", requireAuth, (req, res) => {
+app.post("/friends/report", requireAuth, socialRateLimitV416A, (req, res) => {
   const targetUserId = String(req.body.targetUserId || req.body.friendId || req.body.userId || "").trim();
   const reason = String(req.body.reason || "friend_or_chat_report").slice(0, 300);
   const context = String(req.body.context || "friends").slice(0, 80);
@@ -978,7 +2245,7 @@ app.post("/friends/report", requireAuth, (req, res) => {
   res.json({ ok: true, reported: true });
 });
 
-app.post("/friends/unblock", requireAuth, (req, res) => {
+app.post("/friends/unblock", requireAuth, socialRateLimitV416A, (req, res) => {
   const targetUserId = String(req.body.targetUserId || req.body.friendId || req.body.userId || "").trim();
   if (!targetUserId) return res.status(400).json({ error: "BAD_TARGET_ID" });
 
@@ -1221,6 +2488,25 @@ function publicRoom(room, userId) {
         (room.domino.board || []).length +
         (room.domino.stock || []).length +
         Object.values(room.domino.hands || {}).reduce((sum, hand) => sum + hand.length, 0),
+      // V409A_DOMINO_REAL_FINAL_HANDS_REVEAL_COLLECT_SAFE:
+      // إرسال البلاط الحقيقي المتبقي فقط بعد انتهاء المباراة للعرض البصري، بدون تغيير أي قانون.
+      finalHands: room.status === "finished"
+        ? Object.fromEntries(Object.entries(room.domino.hands || {}).map(([id, hand]) => [
+            id,
+            Array.isArray(hand)
+              ? hand.map((tile) => Array.isArray(tile) ? [Number(tile[0] || 0), Number(tile[1] || 0)] : [0, 0])
+              : []
+          ]))
+        : null,
+      // V409B_DOMINO_REAL_ROUND_FINAL_HANDS_REVEAL_VISIBLE_SAFE:
+      // كشف بصري حقيقي لبلاط نهاية الجولة حتى لو بدأت جولة جديدة قبل الوصول إلى 100.
+      lastRoundFinalHands: room.domino.lastRoundFinalHands || null,
+      lastRoundWinnerId: room.domino.lastRoundWinnerId || null,
+      lastRoundWinnerUsername: room.domino.lastRoundWinnerUsername || null,
+      lastRoundWinnerTeamIds: room.domino.lastRoundWinnerTeamIds || null,
+      lastRoundRoundPointsText: room.domino.lastRoundRoundPointsText || null,
+      lastRoundFinishReason: room.domino.lastRoundFinishReason || null,
+      lastRoundRevealSeq: room.domino.lastRoundRevealSeq || null,
       winnerId: room.winnerId || null,
       winnerUsername: room.winnerUsername || null
     };
@@ -1290,16 +2576,104 @@ function getDominoLegalMoves(room, tile) {
 
 function canPlayDominoTile(room, tile) { return getDominoLegalMoves(room, tile).length > 0; }
 
+// V401C_DOMINO_SUPER_BOT_AI_SAFE: stronger domino bot scoring for 2, 4 fardi, and 4 partner. Rules unchanged.
+function getDominoOpenNumbersAfterMoveV401C(room, move) {
+  const board = Array.isArray(room?.domino?.board) ? room.domino.board : [];
+  if (!board.length || move.side === "start") return { left: move.orientedTile[0], right: move.orientedTile[1] };
+  const ends = getDominoEnds(room);
+  if (move.side === "left") return { left: move.orientedTile[0], right: ends.right };
+  return { left: ends.left, right: move.orientedTile[1] };
+}
+
+function dominoHandNumberCountV401C(hand, n, excludeTile) {
+  return (Array.isArray(hand) ? hand : []).reduce((count, tile) => {
+    if (!Array.isArray(tile) || tile === excludeTile) return count;
+    return count + (tile[0] === n ? 1 : 0) + (tile[1] === n ? 1 : 0);
+  }, 0);
+}
+
+function dominoPlayableCountForEndsV401C(hand, left, right, excludeTile) {
+  return (Array.isArray(hand) ? hand : []).reduce((count, tile) => {
+    if (!Array.isArray(tile) || tile === excludeTile) return count;
+    return count + (tile[0] === left || tile[1] === left || tile[0] === right || tile[1] === right ? 1 : 0);
+  }, 0);
+}
+
+function dominoOpponentPressureV401C(room, userId, left, right) {
+  const players = room?.players || [];
+  const myTeam = isDominoTeamsRoom(room) ? getDominoTeamIndex(room, userId) : null;
+  let pressure = 0;
+
+  for (const p of players) {
+    if (!p || p.id === userId) continue;
+    const isPartner = myTeam !== null && getDominoTeamIndex(room, p.id) === myTeam;
+    const hand = room?.domino?.hands?.[p.id] || [];
+    const playable = dominoPlayableCountForEndsV401C(hand, left, right, null);
+
+    if (isPartner) {
+      pressure += playable * 2.2;
+    } else {
+      pressure -= playable * 3.8;
+      pressure += Math.max(0, 3 - playable) * 7.5;
+    }
+  }
+
+  return pressure;
+}
+
+function dominoPartnerSupportV401C(room, userId, left, right) {
+  if (!isDominoTeamsRoom(room)) return 0;
+  const partnerId = getDominoPartnerId(room, userId);
+  const partnerHand = partnerId ? (room?.domino?.hands?.[partnerId] || []) : [];
+  const playable = dominoPlayableCountForEndsV401C(partnerHand, left, right, null);
+  const myTeam = getDominoTeamIndex(room, userId);
+  const teamPoints = getDominoTeamHandPoints(room, myTeam);
+  const opponentPoints = getDominoTeamHandPoints(room, 1 - myTeam);
+  return playable * 4.8 + (teamPoints <= opponentPoints ? 3.5 : 0);
+}
+
 function findBestDominoMove(room, userId) {
   const hand = room?.domino?.hands?.[userId] || [];
   let best = null;
+  const board = room?.domino?.board || [];
+  const handPointsNow = getDominoHandPoints(room, userId);
+
   for (const tile of hand) {
     for (const move of getDominoLegalMoves(room, tile)) {
-      const remainingPenalty = hand.filter((t) => t !== tile).reduce((sum, t) => sum + getDominoTilePoints(t), 0) * 0.01;
-      const score = move.score - remainingPenalty;
-      if (!best || score > best.score) best = { tile, side: move.side, orientedTile: move.orientedTile, score };
+      const nextEnds = getDominoOpenNumbersAfterMoveV401C(room, move);
+      const remainingHand = hand.filter((t) => t !== tile);
+      const remainingPoints = remainingHand.reduce((sum, t) => sum + getDominoTilePoints(t), 0);
+      const ownFollowUps = dominoPlayableCountForEndsV401C(remainingHand, nextEnds.left, nextEnds.right, null);
+      const leftControl = dominoHandNumberCountV401C(remainingHand, nextEnds.left, null);
+      const rightControl = dominoHandNumberCountV401C(remainingHand, nextEnds.right, null);
+      const controlScore = (leftControl + rightControl) * 3.4;
+      const pressureScore = dominoOpponentPressureV401C(room, userId, nextEnds.left, nextEnds.right);
+      const partnerScore = dominoPartnerSupportV401C(room, userId, nextEnds.left, nextEnds.right);
+      const doubleScore = tile[0] === tile[1] ? (board.length === 0 ? 22 : 8) : 0;
+      const lowExitBonus = remainingHand.length <= 2 ? (30 - remainingPoints * 1.2) : 0;
+      const endgameDumpBonus = handPointsNow >= 24 ? getDominoTilePoints(tile) * 1.6 : getDominoTilePoints(tile) * 0.65;
+      const selfBlockPenalty = ownFollowUps === 0 && remainingHand.length > 0 ? 13 : 0;
+      const startStrongBonus = board.length === 0 ? (getDominoTilePoints(tile) + (tile[0] === tile[1] ? 18 : 0)) : 0;
+
+      const score =
+        move.score +
+        endgameDumpBonus +
+        startStrongBonus +
+        doubleScore +
+        ownFollowUps * 5.5 +
+        controlScore +
+        pressureScore +
+        partnerScore +
+        lowExitBonus -
+        remainingPoints * 0.42 -
+        selfBlockPenalty;
+
+      if (!best || score > best.score) {
+        best = { tile, side: move.side, orientedTile: move.orientedTile, score };
+      }
     }
   }
+
   return best;
 }
 
@@ -1612,6 +2986,13 @@ const chessTurnTimersV138H = new Map();
 const betaTurnTimersV138H = new Map();
 const humanFirstBotTimers = new Map();
 const UNIVERSAL_TURN_MS_V138H = 10000;
+// V233: الكيرم يبقى 15 ثانية.
+// V285_BILLIARDS_REFERENCE_EXACT_VISUAL_RULES_READY: البلياردو فقط يصبح 25 ثانية ليطابق الفيديو المرجعي، بدون تغيير الدومينو/الشطرنج/الكيرم.
+const BETA_TURN_MS_V233 = 15000;
+const BILLIARDS_TURN_MS_V285 = 25000;
+function betaTurnMsV285(room) {
+  return room && room.game === "billiards" ? BILLIARDS_TURN_MS_V285 : BETA_TURN_MS_V233;
+}
 
 function clearHumanFirstBotTimer(roomId) {
   const timer = humanFirstBotTimers.get(roomId);
@@ -1696,7 +3077,13 @@ function awardRoomWagerV136IK(room, winnerId, db) {
   if (pot <= 0) return;
 
   let receivers = [];
-  if (room.game === "domino" && isDominoTeamsRoom(room)) {
+  if ((room.game === "carrom" || room.game === "billiards") && Number(room.maxPlayers || 2) === 4) {
+    const winnerIndex = (room.players || []).findIndex((p) => String(p.id) === String(winnerId));
+    if (winnerIndex >= 0) {
+      const parity = winnerIndex % 2;
+      receivers = (room.players || []).filter((p, index) => index % 2 === parity && !isBotIdV136IK(p.id));
+    }
+  } else if (room.game === "domino" && isDominoTeamsRoom(room)) {
     const team = getDominoTeamIndex(room, winnerId);
     receivers = getDominoTeamPlayers(room, team).filter((p) => !isBotIdV136IK(p.id));
   } else if (!isBotIdV136IK(winnerId)) {
@@ -1908,7 +3295,7 @@ function scheduleBetaTurnTimerV138H(room) {
   if (!room.beta.turnUserId) setBetaTurnV138(room, (room.players || [])[0]?.id);
   clearBetaTurnTimerV138H(room.id);
   room.beta.turnStartedAt = new Date().toISOString();
-  room.beta.turnEndsAt = new Date(Date.now() + UNIVERSAL_TURN_MS_V138H).toISOString();
+  room.beta.turnEndsAt = new Date(Date.now() + betaTurnMsV285(room)).toISOString();
 
   const timer = setTimeout(() => {
     const live = rooms.get(room.id);
@@ -1955,7 +3342,7 @@ function scheduleBetaTurnTimerV138H(room) {
     io.to(live.id).emit("beta:state", live.beta.realtimeState);
     scheduleBetaTurnTimerV138H(live);
     emitRoom(live);
-  }, UNIVERSAL_TURN_MS_V138H);
+  }, betaTurnMsV285(room));
 
   betaTurnTimersV138H.set(room.id, timer);
 }
@@ -2059,7 +3446,7 @@ function setBetaTurnV138(room, userId) {
   room.beta.turnUserId = players[idx] ? players[idx].id : null;
   room.beta.turnUsername = players[idx] ? players[idx].username : null;
   room.beta.turnStartedAt = new Date().toISOString();
-  room.beta.turnEndsAt = new Date(Date.now() + UNIVERSAL_TURN_MS_V138H).toISOString();
+  room.beta.turnEndsAt = new Date(Date.now() + betaTurnMsV285(room)).toISOString();
 }
 
 function advanceBetaTurnV138(room) {
@@ -2111,6 +3498,24 @@ function finishRoom(room, winnerId) {
       currentScore = room.domino.scores[winnerId] || 0;
     }
 
+    // V409B_DOMINO_REAL_ROUND_FINAL_HANDS_REVEAL_VISIBLE_SAFE:
+    // نحفظ البلاط الحقيقي المتبقي قبل إعادة توزيع الجولة الجديدة، للعرض البصري فقط.
+    const finalHandsSnapshotV409B = Object.fromEntries(Object.entries(room.domino.hands || {}).map(([id, hand]) => [
+      id,
+      Array.isArray(hand)
+        ? hand.map((tile) => Array.isArray(tile) ? [Number(tile[0] || 0), Number(tile[1] || 0)] : [0, 0])
+        : []
+    ]));
+    room.domino.lastRoundFinalHands = finalHandsSnapshotV409B;
+    room.domino.lastRoundWinnerId = winnerId;
+    room.domino.lastRoundWinnerUsername = winnerPlayerForRound?.username || "الفائز";
+    room.domino.lastRoundWinnerTeamIds = isDominoTeamsRoom(room)
+      ? getDominoTeamPlayers(room, getDominoTeamIndex(room, winnerId)).map((p) => String(p.id))
+      : [String(winnerId)];
+    room.domino.lastRoundRoundPointsText = room.domino.roundPointsText || null;
+    room.domino.lastRoundFinishReason = room.domino.finishReason || null;
+    room.domino.lastRoundRevealSeq = Date.now();
+
     // إذا لم يصل الفائز إلى 100، نبدأ جولة جديدة بنفس النقاط المتراكمة.
     if (currentScore < 100) {
       room.status = "playing";
@@ -2129,20 +3534,38 @@ function finishRoom(room, winnerId) {
   botFinishComment(room, winnerId);
 
   const db = readDb();
-  const winner = db.users.find((u) => u.id === winnerId);
+  const carrom4WinnerIndexV260B = (room.game === "carrom" || room.game === "billiards") && Number(room.maxPlayers || 2) === 4
+    ? (room.players || []).findIndex((p) => String(p.id) === String(winnerId))
+    : -1;
+  const carrom4WinnerTeamIdsV260B = carrom4WinnerIndexV260B >= 0
+    ? (room.players || []).filter((p, index) => index % 2 === carrom4WinnerIndexV260B % 2).map((p) => String(p.id))
+    : [];
 
-  if (winner) {
-    winner.wins = (winner.wins || 0) + 1;
-    winner.points = (winner.points || 0) + 10;
-    winner.coins = (winner.coins || 0) + 20;
-    winner.level = Math.max(1, Math.floor((winner.points || 0) / 100) + 1);
+  if (carrom4WinnerTeamIdsV260B.length) {
+    room.winnerTeamIds = carrom4WinnerTeamIdsV260B;
+    room.winnerUsername = (room.players || [])
+      .filter((p) => carrom4WinnerTeamIdsV260B.includes(String(p.id)))
+      .map((p) => p.username || "لاعب")
+      .join(" + ");
+  }
+
+  const winnerIdsForStatsV260B = carrom4WinnerTeamIdsV260B.length ? carrom4WinnerTeamIdsV260B : [String(winnerId)];
+  for (const winnerUserIdV260B of winnerIdsForStatsV260B) {
+    if (isBotIdV136IK(winnerUserIdV260B)) continue;
+    const winner = db.users.find((u) => String(u.id) === String(winnerUserIdV260B));
+    if (winner) {
+      winner.wins = (winner.wins || 0) + 1;
+      winner.points = (winner.points || 0) + 10;
+      winner.coins = (winner.coins || 0) + 20;
+      winner.level = Math.max(1, Math.floor((winner.points || 0) / 100) + 1);
+    }
   }
 
   awardRoomWagerV136IK(room, winnerId, db);
 
   for (const p of room.players) {
-    if (p.id !== winnerId) {
-      const loser = db.users.find((u) => u.id === p.id);
+    if (!winnerIdsForStatsV260B.includes(String(p.id))) {
+      const loser = db.users.find((u) => String(u.id) === String(p.id));
       if (loser) loser.losses = (loser.losses || 0) + 1;
     }
   }
@@ -2158,7 +3581,7 @@ function finishRoom(room, winnerId) {
   writeDb(db);
   for (const p of room.players || []) emitUserUpdateV136IK(p.id);
   emitRoomState(room);
-  io.to(room.id).emit("match:finished", { roomId: room.id, game: room.game, winnerId });
+  io.to(room.id).emit("match:finished", { roomId: room.id, game: room.game, winnerId, winnerTeamIds: room.winnerTeamIds || null });
 }
 
 
@@ -2208,7 +3631,7 @@ function finishRoomByWithdrawal(room, winnerId, reason) {
   writeDb(db);
   for (const p of room.players || []) emitUserUpdateV136IK(p.id);
   emitRoomState(room);
-  io.to(room.id).emit("match:finished", { roomId: room.id, game: room.game, winnerId });
+  io.to(room.id).emit("match:finished", { roomId: room.id, game: room.game, winnerId, winnerTeamIds: room.winnerTeamIds || null });
 }
 
 function handleDominoPlayerLeave(room, leavingUserId) {
@@ -2293,6 +3716,56 @@ function handleDominoPlayerLeave(room, leavingUserId) {
   emitRoomState(room);
 }
 
+
+
+// V179_TWO_PLAYER_WITHDRAWAL_WINNER_READY:
+// أي لعبة 2 لاعبين إذا لاعب انسحب/خرج/انقطع، اللاعب الباقي يفوز فورًا.
+function handleTwoPlayerWithdrawalV179(room, leavingUserId, reason) {
+  if (!room || !Array.isArray(room.players)) return false;
+  if (room.status !== "playing") return false;
+
+  const maxPlayers = Number(room.maxPlayers || 2);
+  if (maxPlayers !== 2) return false;
+
+  const game = String(room.game || "");
+  if (!["domino", "chess", "carrom", "billiards"].includes(game)) return false;
+
+  const leavingPlayer = room.players.find((p) => String(p.id) === String(leavingUserId));
+  const winner = room.players.find((p) => String(p.id) !== String(leavingUserId));
+
+  if (!winner) return false;
+
+  const leavingName = leavingPlayer?.username || leavingPlayer?.name || "لاعب";
+  const winnerName = winner?.username || winner?.name || "اللاعب الباقي";
+
+  room.withdrawalV179 = {
+    leftUserId: leavingUserId,
+    leftUsername: leavingName,
+    winnerId: winner.id,
+    winnerUsername: winnerName,
+    reason: reason || "فوز بسبب الانسحاب",
+    createdAt: new Date().toISOString()
+  };
+
+  const message = `${leavingName} انسحب · ${winnerName} هو الفائز`;
+
+  try {
+    io.to(room.id).emit("beta:playerLeft", {
+      roomId: room.id,
+      game: room.game,
+      leftUserId: leavingUserId,
+      leftUsername: leavingName,
+      remainingCount: 1,
+      finished: true,
+      winnerId: winner.id,
+      winnerUsername: winnerName,
+      message
+    });
+  } catch {}
+
+  finishRoomByWithdrawal(room, winner.id, message);
+  return true;
+}
 
 // V138_BETA4_WITHDRAW_CONTINUE_SAFE:
 // كيرم 4 وبلياردو 4: إذا لاعب انسحب، الباقي يواصلون.
@@ -2413,7 +3886,125 @@ function emitVoiceSignalV137O(socket, room, eventName, payload, toUserId) {
   socket.to(room.id).emit(eventName, safePayload);
 }
 
+// V187_BETA_ANTI_CHEAT_GUARD_READY:
+// حماية إضافية للكيرم والبلياردو:
+// حجم payload، أرقام آمنة، معدل إرسال، منع إنهاء مبكر/من غير الدور.
+// V187E_RELAX_SAFE_BETA_STATE_READY:
+const BETA_STATE_MAX_BYTES_V187 = 140000;
+const BETA_STATE_MIN_INTERVAL_MS_V187 = 16;
+const BETA_SEQ_FUTURE_DRIFT_MS_V187 = 15000;
+const BETA_MATCH_MIN_FINISH_MS_V187 = 10000;
+// V187G_ALLOW_TIME_SEQ_NUMBERS_READY:
+const BETA_MAX_NUMBER_ABS_V187 = 1000000000000000;
+
+// V187F_SANITIZE_BETA_STATE_READY:
+// تنظيف بيانات الكيرم/البلياردو قبل فحص الحماية.
+// يمنع ظهور "بيانات الطاولة غير آمنة" بسبب NaN/Infinity/function/symbol.
+function betaSanitizeStateV187F(value, depth = 0, seen = new WeakSet()) {
+  if (depth > 14) return null;
+  if (value == null) return null;
+
+  const t = typeof value;
+
+  if (t === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (t === "string") {
+    return value.length > 3000 ? value.slice(0, 3000) : value;
+  }
+
+  if (t === "boolean") return value;
+
+  if (t === "undefined" || t === "function" || t === "symbol" || t === "bigint") {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 1500).map((x) => betaSanitizeStateV187F(x, depth + 1, seen));
+  }
+
+  if (t === "object") {
+    if (seen.has(value)) return null;
+    seen.add(value);
+
+    const out = {};
+    const keys = Object.keys(value).slice(0, 500);
+
+    for (const k of keys) {
+      const key = String(k).slice(0, 160);
+      out[key] = betaSanitizeStateV187F(value[k], depth + 1, seen);
+    }
+
+    return out;
+  }
+
+  return null;
+}
+
+function betaJsonSizeV187(value) {
+  try { return Buffer.byteLength(JSON.stringify(value || {}), "utf8"); } catch { return 999999999; }
+}
+
+function betaStateLooksSafeV187(value, depth = 0) {
+  if (depth > 14) return false;
+  if (value == null || typeof value === "undefined") return true;
+
+  const t = typeof value;
+
+  if (t === "string") return value.length <= 3000;
+  if (t === "boolean") return true;
+  if (t === "number") return Number.isFinite(value) && Math.abs(value) <= BETA_MAX_NUMBER_ABS_V187;
+
+  if (Array.isArray(value)) {
+    if (value.length > 1500) return false;
+    return value.every((x) => betaStateLooksSafeV187(x, depth + 1));
+  }
+
+  if (t === "object") {
+    const keys = Object.keys(value);
+    if (keys.length > 500) return false;
+
+    for (const k of keys) {
+      if (String(k).length > 160) return false;
+      if (!betaStateLooksSafeV187(value[k], depth + 1)) return false;
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+function betaIsTerminalUpdateV187(state) {
+  return !!(state && (state.turnDone === true || state.nextTurn === true || state.shotComplete === true));
+}
+
+function betaRejectV187(socket, code, msg) {
+  socket.emit("error:message", msg || code);
+  socket.emit("beta:guard", { ok: false, code });
+}
+
 io.on("connection", (socket) => {
+  // V139_LOCAL_PRESENCE: حالة اللاعب على السيرفر المحلي
+  const setPresenceV139 = (status) => {
+    const safeStatus = ["online", "menu", "playing", "offline"].includes(String(status)) ? String(status) : "online";
+    socket.user.presenceStatusV139 = safeStatus;
+    socket.broadcast.emit("friend:presence", {
+      userId: socket.user.id,
+      username: socket.user.username,
+      status: safeStatus,
+      at: Date.now()
+    });
+    console.log("V139 presence:", socket.user.id, safeStatus);
+  };
+
+  setPresenceV139("online");
+
+  socket.on("presence:set", ({ status } = {}) => {
+    setPresenceV139(status);
+  });
+
   connectedUserSocketsV137O.set(String(socket.user.id), socket.id);
   socket.on("disconnect", () => {
     if (connectedUserSocketsV137O.get(String(socket.user.id)) === socket.id) connectedUserSocketsV137O.delete(String(socket.user.id));
@@ -2424,6 +4015,7 @@ io.on("connection", (socket) => {
 socket.emit("rooms:list", roomList());
 
   socket.on("rooms:list", () => {
+    if (socketCooldownV416A(socket, "rooms_list", 800)) return; // V416A
     socket.emit("rooms:list", roomList());
   });
 
@@ -2440,9 +4032,17 @@ socket.emit("rooms:list", roomList());
     socket.emit("rooms:list", roomList());
   });
 
-  socket.on("room:create", ({ game, maxPlayers, dominoMode, wager, matchMode }) => {
+  socket.on("room:create", ({ game, maxPlayers, dominoMode, wager, matchMode } = {}, ackV221) => {
+    if (socketCooldownV416A(socket, "room_create", 1800)) return; // V416A
+    // V221: نرجع تأكيد للعميل أن البحث/الغرفة أضافته فعلاً أو نرجع سبب الفشل.
+    const replyCreateV221 = (payload) => {
+      try {
+        if (typeof ackV221 === "function") ackV221(payload || {});
+      } catch {}
+    };
     const allowedGames = ["domino", "chess", "carrom", "billiards"];
     if (!allowedGames.includes(game)) {
+      replyCreateV221({ ok: false, error: "GAME_NOT_ALLOWED" });
       return socket.emit("error:message", "GAME_NOT_ALLOWED");
     }
 
@@ -2454,6 +4054,7 @@ socket.emit("rooms:list", roomList());
       const db = readDb();
       const creator = db.users.find((u) => u.id === socket.user.id);
       if (!creator || Number(creator.coins || 0) < safeWagerV136IK) {
+        replyCreateV221({ ok: false, error: `رصيدك لا يكفي لإنشاء رهان ${safeWagerV136IK} كوينز` });
         return socket.emit("error:message", `رصيدك لا يكفي لإنشاء رهان ${safeWagerV136IK} كوينز`);
       }
     }
@@ -2496,6 +4097,7 @@ socket.emit("rooms:list", roomList());
 
         socket.emit("room:joined", publicRoom(existingRoom, socket.user.id));
         emitRoom(existingRoom);
+        replyCreateV221({ ok: true, joinedExisting: true, room: publicRoom(existingRoom, socket.user.id) });
         return;
       }
     }
@@ -2565,9 +4167,11 @@ socket.emit("rooms:list", roomList());
     socket.emit("room:joined", publicRoom(room, socket.user.id));
     io.emit("rooms:list", roomList());
     if (room.status === "waiting") scheduleHumanFirstBotTimer(room);
+    replyCreateV221({ ok: true, created: true, room: publicRoom(room, socket.user.id) });
   });
 
   socket.on("room:join", ({ roomId, expectedGame, expectedMaxPlayers, expectedDominoMode }) => {
+    if (socketCooldownV416A(socket, `room_join_${String(roomId || "")}`, 1000)) return; // V416A
     // V136ES_DOMINO4_TEAMS_LOCK_FIX_SAFE: قفل دخول غرف الدومينو حسب النوع: 2 / 4 فردي / 4 شراكة.
     const room = rooms.get(roomId);
     if (!room) return socket.emit("error:message", "ROOM_NOT_FOUND");
@@ -2630,6 +4234,7 @@ socket.emit("rooms:list", roomList());
   });
 
   socket.on("room:addBot", ({ roomId }) => {
+    if (socketCooldownV416A(socket, `room_add_bot_${String(roomId || "")}`, 2500)) return; // V416A
     const room = rooms.get(roomId);
     if (!room) return socket.emit("error:message", "ROOM_NOT_FOUND");
     if (room.status === "finished") return socket.emit("error:message", "ROOM_FINISHED");
@@ -2690,6 +4295,18 @@ socket.emit("rooms:list", roomList());
       return;
     }
 
+    // V179_TWO_PLAYER_WITHDRAWAL_WINNER_READY:
+    // شطرنج/كيرم/بلياردو 2 لاعبين: الخروج أثناء اللعب = خسارة المنسحب وفوز الباقي.
+    if (
+      room.status === "playing" &&
+      Number(room.maxPlayers || 2) === 2 &&
+      ["chess", "carrom", "billiards"].includes(String(room.game || ""))
+    ) {
+      handleTwoPlayerWithdrawalV179(room, socket.user.id, "فوز بسبب انسحاب اللاعب الآخر");
+      socket.emit("rooms:list", roomList());
+      return;
+    }
+
     room.players = (room.players || []).filter((p) => p.id !== socket.user.id);
     if (room.players.length === 0) {
       rooms.delete(room.id);
@@ -2703,9 +4320,108 @@ socket.emit("rooms:list", roomList());
     emitRoomState(room);
   });
 
+
+  // V178_SEND_GIFT_TO_ROOM: إرسال هدية حقيقية داخل غرفة اللعب لكل اللاعبين
+  socket.on("gift:send", ({ roomId, toUserId, giftType } = {}) => {
+    const room = rooms.get(String(roomId || ""));
+    if (!room) return socket.emit("error:message", "ROOM_NOT_FOUND");
+
+    const sender = (room.players || []).find((p) => String(p.id) === String(socket.user.id));
+    if (!sender) return socket.emit("error:message", "NOT_IN_ROOM");
+    if (socketCooldownV416A(socket, `gift_send_${room.id}`, 4500)) return; // V416A: منع سبام الهدايا.
+
+    const receiver = (room.players || []).find((p) => String(p.id) === String(toUserId));
+    if (!receiver) return socket.emit("error:message", "GIFT_RECEIVER_NOT_IN_ROOM");
+
+    const safeGiftType = String(giftType || "").trim().slice(0, 40);
+
+    const giftPricesV178 = {
+      royal_lion_8s: 50000,
+      legend_lion_15s: 150000,
+      super_car_15s: 150000,
+      royal_fireworks_15s: 150000,
+      royal_wolf_15s: 145000,
+      royal_horse_15s: 140000,
+      royal_crown_15s: 160000
+    };
+
+    const giftNamesV178 = {
+      royal_lion_8s: "الأسد الملكي",
+      legend_lion_15s: "الأسد الأسطوري",
+      super_car_15s: "السيارة الأسطورية",
+      royal_fireworks_15s: "الألعاب النارية الملكية",
+      royal_wolf_15s: "الذئب الأسطوري",
+      royal_horse_15s: "الخيل الملكي",
+      royal_crown_15s: "التاج الملكي"
+    };
+
+    if (!giftPricesV178[safeGiftType]) {
+      return socket.emit("error:message", "GIFT_NOT_READY");
+    }
+
+    const freeGiftMonthV178 = false; // V414_GIFTS_PAID_ONLY_SERVER_DEDUCT_READY: لا يوجد شهر مجاني للهدايا
+    const price = Number(giftPricesV178[safeGiftType] || 0);
+
+    // V414_GIFTS_PAID_ONLY_SERVER_DEDUCT_READY:
+    // الخصم الحقيقي من db.json قبل إرسال الهدية لكل اللاعبين.
+    const dbGiftV414 = readDb();
+    const userObjV414 = dbGiftV414.users.find((u) => String(u.id) === String(socket.user.id));
+    if (!userObjV414) {
+      return socket.emit("error:message", "USER_NOT_FOUND");
+    }
+
+    const vipGiftDiscountPercentV415A = isVipSubscriptionActiveV415A(userObjV414) ? VIP_GIFT_DISCOUNT_PERCENT_V415A : 0;
+    const finalGiftPriceV415A = Math.max(1, Math.round(price * (100 - vipGiftDiscountPercentV415A) / 100));
+    const balanceV414 = Number(userObjV414.coins || 0);
+    if (balanceV414 < finalGiftPriceV415A) {
+      return socket.emit("error:message", `رصيدك لا يكفي لإرسال هذه الهدية: ${finalGiftPriceV415A} كوينز`);
+    }
+
+    userObjV414.coins = Math.max(0, balanceV414 - finalGiftPriceV415A);
+    userObjV414.walletLog = Array.isArray(userObjV414.walletLog) ? userObjV414.walletLog : [];
+    userObjV414.walletLog.unshift({
+      type: "gift",
+      giftType: safeGiftType,
+      giftName: giftNamesV178[safeGiftType] || safeGiftType,
+      originalPrice: price,
+      vipDiscountPercent: vipGiftDiscountPercentV415A,
+      coins: -finalGiftPriceV415A,
+      at: new Date().toISOString()
+    });
+    userObjV414.walletLog = userObjV414.walletLog.slice(0, 30);
+    writeDb(dbGiftV414);
+    try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
+
+    if (!room.giftHistoryV178) room.giftHistoryV178 = [];
+
+    const giftEvent = {
+      id: `gift_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      roomId: room.id,
+      fromUserId: sender.id,
+      fromName: sender.username || sender.name || "لاعب",
+      toUserId: receiver.id,
+      toName: receiver.username || receiver.name || "لاعب",
+      giftType: safeGiftType,
+      giftName: giftNamesV178[safeGiftType] || safeGiftType,
+      price: finalGiftPriceV415A,
+      originalPrice: price,
+      vipDiscountPercent: vipGiftDiscountPercentV415A,
+      free: freeGiftMonthV178,
+      createdAt: new Date().toISOString()
+    };
+
+    room.giftHistoryV178.push(giftEvent);
+    room.giftHistoryV178 = room.giftHistoryV178.slice(-100);
+
+    io.to(room.id).emit("gift:sent", giftEvent);
+    emitRoom(room);
+  });
+
   socket.on("chat:send", ({ roomId, text }) => {
-    const room = rooms.get(roomId);
+    const room = rooms.get(String(roomId || ""));
     if (!room) return;
+    if (!isRoomPlayerV416A(room, socket.user.id)) return socket.emit("error:message", "NOT_IN_ROOM"); // V416A
+    if (socketCooldownV416A(socket, `chat_send_${room.id}`, 1000)) return; // V416A
 
     const clean = String(text || "").trim().slice(0, 200);
     if (!clean) return;
@@ -2818,14 +4534,69 @@ socket.emit("rooms:list", roomList());
     if (!player) return socket.emit("error:message", "NOT_IN_ROOM");
     if (room.status !== "playing" && room.status !== "finished") return;
 
-    const safeState = state && typeof state === "object" ? state : {};
+    let safeState = state && typeof state === "object" ? state : {};
+
+    // V294_GAME_ISOLATION_APP_SERVER_READY:
+    // عزل صارم: لا نقبل snapshot ممهورة بلعبة مختلفة أو kind مختلف داخل نفس الغرفة.
+    const requestedStateGameV294 = String((safeState && (safeState.game || safeState.gameScopeV294)) || game || room.game || "");
+    const requestedStateKindV294 = String((safeState && safeState.kind) || "");
+    if (requestedStateGameV294 && requestedStateGameV294 !== room.game) {
+      return socket.emit("error:message", "BETA_STATE_GAME_SCOPE_MISMATCH");
+    }
+    if (room.game === "carrom" && /billiards/i.test(requestedStateKindV294)) {
+      return socket.emit("error:message", "BETA_STATE_KIND_MISMATCH");
+    }
+    if (room.game === "billiards" && /carrom/i.test(requestedStateKindV294)) {
+      return socket.emit("error:message", "BETA_STATE_KIND_MISMATCH");
+    }
+
+    // V187F_SANITIZE_BETA_STATE_READY:
+    // تنظيف بيانات الطاولة قبل فحص الحماية.
+    safeState = betaSanitizeStateV187F(safeState) || {};
+
+    // V187_BETA_ANTI_CHEAT_GUARD_READY:
+    // فحص حجم/شكل/معدل بيانات الطاولة قبل قبولها.
+    if (betaJsonSizeV187(safeState) > BETA_STATE_MAX_BYTES_V187) {
+      return betaRejectV187(socket, "BETA_STATE_TOO_LARGE", "بيانات الطاولة كبيرة جدًا");
+    }
+
+    if (!betaStateLooksSafeV187(safeState)) {
+      return betaRejectV187(socket, "BETA_STATE_UNSAFE", "بيانات الطاولة غير آمنة");
+    }
+
+    room.beta = room.beta || {};
+    const nowV187 = Date.now();
+    const terminalUpdateV187 = betaIsTerminalUpdateV187(safeState);
+
+    room.beta.lastStateAtByUserV187 = room.beta.lastStateAtByUserV187 || {};
+    const lastStateAtV187 = Number(room.beta.lastStateAtByUserV187[String(socket.user.id)] || 0);
+
+    if (!terminalUpdateV187 && nowV187 - lastStateAtV187 < BETA_STATE_MIN_INTERVAL_MS_V187) {
+      return socket.emit("beta:state:ack", { roomId: room.id, dropped: true, reason: "RATE_LIMIT" });
+    }
+
+    room.beta.lastStateAtByUserV187[String(socket.user.id)] = nowV187;
     room.beta = room.beta || {};
     if (!room.beta.turnUserId) setBetaTurnV138(room, (room.players || [])[0]?.id);
-    if (room.beta.turnUserId && String(room.beta.turnUserId) !== String(socket.user.id)) {
+    const currentBetaTurnUserIdV269 = String(room.beta.turnUserId || "");
+    const currentBetaTurnPlayerV269 = (room.players || []).find((p) => String(p?.id || "") === currentBetaTurnUserIdV269) || null;
+    const carromDelegatedBotTurnV269 =
+      room.game === "carrom" &&
+      currentBetaTurnUserIdV269 &&
+      currentBetaTurnUserIdV269 !== String(socket.user.id) &&
+      String(room.matchMode || "live") !== "live" &&
+      (isBotIdV136IK(currentBetaTurnUserIdV269) || isBotPlayer(currentBetaTurnPlayerV269));
+
+    if (room.beta.turnUserId && String(room.beta.turnUserId) !== String(socket.user.id) && !carromDelegatedBotTurnV269) {
       return socket.emit("error:message", "ليس دورك الآن");
     }
 
     const seq = Number(safeState.seq || Date.now());
+
+    if (!Number.isFinite(seq) || seq <= 0 || seq > Date.now() + BETA_SEQ_FUTURE_DRIFT_MS_V187) {
+      return betaRejectV187(socket, "BETA_BAD_SEQ", "ترتيب بيانات الطاولة غير صحيح");
+    }
+
     const previousSeq = Number(room?.beta?.realtimeSeq || 0);
     if (seq < previousSeq) return;
 
@@ -2837,6 +4608,7 @@ socket.emit("rooms:list", roomList());
       ...safeState,
       seq,
       game: room.game,
+      gameScopeV294: room.game,
       roomId: room.id,
       fromUserId: socket.user.id,
       fromUsername: socket.user.username,
@@ -2846,14 +4618,75 @@ socket.emit("rooms:list", roomList());
     };
     room.beta.lastAction = `${socket.user.username} حدّث حالة ${room.game === "carrom" ? "الكيرم" : "البلياردو"}`;
 
-    if (safeState.turnDone === true || safeState.nextTurn === true || safeState.shotComplete === true) {
+    // V237B_TURN_RULE_AUTHORITATIVE:
+    // shotComplete = انتهت الضربة فقط، وليس سببًا دائمًا لنقل الدور.
+    // السيرفر يثبت الدور فقط عندما تصله نتيجة قانون صريحة من اللعبة.
+    const explicitTurnResultV237 =
+      safeState.turnResultV237 === true ||
+      typeof safeState.turnContinues === "boolean" ||
+      typeof safeState.authoritativeTurnUserId !== "undefined" ||
+      typeof safeState.nextTurnUserId !== "undefined";
+
+    let turnWasResolvedV237 = false;
+
+    if (explicitTurnResultV237) {
+      const playersV237 = room.players || [];
+      const actorIdV237 = carromDelegatedBotTurnV269 ? currentBetaTurnUserIdV269 : String(socket.user.id);
+      const currentIndexV237 = Math.max(0, playersV237.findIndex((p) => String(p.id) === String(room.beta.turnUserId || actorIdV237)));
+      const fallbackNextPlayerV237 = playersV237.length ? playersV237[(currentIndexV237 + 1) % playersV237.length] : null;
+      const requestedIdV237 = String(safeState.authoritativeTurnUserId || safeState.nextTurnUserId || "").trim();
+      const requestedPlayerV237 = playersV237.find((p) => String(p.id) === requestedIdV237) || null;
+      const continuesV237 = safeState.turnContinues === true;
+
+      const finalPlayerV237 = continuesV237
+        ? (playersV237.find((p) => String(p.id) === actorIdV237) || requestedPlayerV237 || fallbackNextPlayerV237)
+        : (requestedPlayerV237 || fallbackNextPlayerV237);
+
+      if (finalPlayerV237 && finalPlayerV237.id) {
+        setBetaTurnV138(room, finalPlayerV237.id);
+        turnWasResolvedV237 = true;
+        room.beta.lastTurnDecisionV237 = {
+          byUserId: actorIdV237,
+          turnContinues: continuesV237,
+          authoritativeTurnUserId: room.beta.turnUserId || null,
+          requestedTurnUserId: requestedIdV237 || null,
+          reason: String(safeState.turnDecisionReason || safeState.reason || "").slice(0, 160),
+          at: new Date().toISOString()
+        };
+
+        room.beta.realtimeState.turnResultV237 = true;
+        room.beta.realtimeState.shotComplete = safeState.shotComplete === true;
+        room.beta.realtimeState.turnContinues = continuesV237;
+        room.beta.realtimeState.authoritativeTurnUserId = room.beta.turnUserId || null;
+        room.beta.realtimeState.nextTurnUserId = room.beta.turnUserId || null;
+        room.beta.realtimeState.nextTurnUsername = room.beta.turnUsername || null;
+        room.beta.realtimeState.turnUserId = room.beta.turnUserId || null;
+        room.beta.realtimeState.turnUsername = room.beta.turnUsername || null;
+        room.beta.realtimeState.turnDecisionReason = room.beta.lastTurnDecisionV237.reason;
+      }
+    } else if (safeState.nextTurn === true || safeState.turnDone === true) {
+      // Legacy: nextTurn/turnDone فقط تنقل الدور. shotComplete وحدها لا تنقل.
       advanceBetaTurnV138(room);
+      turnWasResolvedV237 = true;
       room.beta.realtimeState.nextTurnUserId = room.beta.turnUserId || null;
       room.beta.realtimeState.nextTurnUsername = room.beta.turnUsername || null;
+      room.beta.realtimeState.turnUserId = room.beta.turnUserId || null;
+      room.beta.realtimeState.turnUsername = room.beta.turnUsername || null;
+      room.beta.realtimeState.legacyTurnResultV237 = true;
     }
-    scheduleBetaTurnTimerV138H(room);
 
-    socket.to(room.id).emit("beta:state", room.beta.realtimeState);
+    if (turnWasResolvedV237) {
+      scheduleBetaTurnTimerV138H(room);
+    }
+
+    room.beta.realtimeState.turnStartedAt = room.beta.turnStartedAt || null;
+    room.beta.realtimeState.turnEndsAt = room.beta.turnEndsAt || null;
+
+    // V238_HUMAN_TURN_COUNTDOWN_SYNC:
+    // أرسل نتيجة الدور الرسمية لكل اللاعبين، حتى اللاعب الذي أرسل الضربة،
+    // لأن صاحب الضربة يحتاج turnEndsAt الجديد إذا نفس اللاعب سيكمل.
+    room.beta.realtimeState.serverAuthoritativeTurnV238 = true;
+    io.to(room.id).emit("beta:state", room.beta.realtimeState);
     socket.emit("beta:state:ack", { roomId: room.id, seq, turnUserId: room.beta.turnUserId || null });
     // V138AQ_BILLIARDS_REALTIME_FLOOD_JITTER_FIX_SAFE:
     // لا نرسل room:update مع كل beta:state حتى لا يعمل App.setRoom مع كل فريم.
@@ -2868,9 +4701,26 @@ socket.emit("rooms:list", roomList());
     const player = (room.players || []).find((p) => p.id === socket.user.id);
     if (!player) return socket.emit("error:message", "NOT_IN_ROOM");
     if (room.status !== "playing") return socket.emit("error:message", "GAME_NOT_STARTED");
-    const safeWinnerId = String(winnerId || socket.user.id);
-    const winner = (room.players || []).find((p) => String(p.id) === safeWinnerId) || player;
     room.beta = room.beta || {};
+
+    // V187_BETA_ANTI_CHEAT_GUARD_READY:
+    // منع إنهاء مباراة كيرم/بلياردو من غير الدور أو مباشرة بعد البداية.
+    if (room.beta.turnUserId && String(room.beta.turnUserId) !== String(socket.user.id)) {
+      return betaRejectV187(socket, "BETA_FINISH_NOT_YOUR_TURN", "لا يمكنك إنهاء المباراة الآن: ليس دورك");
+    }
+
+    const startedAtV187 = Date.parse(String(room.beta.startedAt || ""));
+    if (Number.isFinite(startedAtV187) && Date.now() - startedAtV187 < BETA_MATCH_MIN_FINISH_MS_V187) {
+      return betaRejectV187(socket, "BETA_FINISH_TOO_EARLY", "لا يمكن إنهاء المباراة بهذه السرعة");
+    }
+
+    if (room.beta.lastFinishAtV187 && Date.now() - Number(room.beta.lastFinishAtV187) < 3000) return;
+    room.beta.lastFinishAtV187 = Date.now();
+
+    const safeWinnerId = String(winnerId || socket.user.id);
+    const winner = (room.players || []).find((p) => String(p.id) === safeWinnerId);
+    if (!winner) return betaRejectV187(socket, "BETA_BAD_WINNER", "الفائز غير موجود في الغرفة");
+
     room.beta.serverFinishGuardV138 = true;
     room.beta.lastFinishReasonV137K = String(reason || "انتهت المباراة").slice(0, 140);
     finishRoom(room, winner.id);
@@ -2880,7 +4730,17 @@ socket.emit("rooms:list", roomList());
     const room = rooms.get(roomId);
     if (!room || !["carrom", "billiards"].includes(room.game)) return;
 
+    if (room.status !== "playing") return socket.emit("error:message", "GAME_NOT_STARTED");
     if (room.beta?.turnUserId && String(room.beta.turnUserId) !== String(socket.user.id)) return socket.emit("error:message", "ليس دورك الآن");
+
+    room.beta.lastScoreAtByUserV187 = room.beta.lastScoreAtByUserV187 || {};
+    const nowScoreV187 = Date.now();
+    const lastScoreAtV187 = Number(room.beta.lastScoreAtByUserV187[String(socket.user.id)] || 0);
+
+    if (nowScoreV187 - lastScoreAtV187 < 1200) return socket.emit("error:message", "انتظر قبل تسجيل نقطة أخرى");
+
+    room.beta.lastScoreAtByUserV187[String(socket.user.id)] = nowScoreV187;
+
     const index = room.players.findIndex((p) => p.id === socket.user.id);
     if (index === 0) room.beta.scoreA += 1;
     if (index === 1) room.beta.scoreB += 1;
@@ -2902,6 +4762,22 @@ socket.emit("rooms:list", roomList());
       if (player.socketId === socket.id) {
         player.socketId = null;
         player.disconnectedAt = Date.now();
+
+        // V179_TWO_PLAYER_WITHDRAWAL_WINNER_READY:
+        // إذا انقطع اللاعب أثناء مباراة 2 لاعبين، يعتبر انسحابًا حتى لا تتعلق المباراة.
+        try {
+          if (room && room.status === "playing" && Number(room.maxPlayers || 2) === 2) {
+            if (String(room.game || "") === "domino") {
+              handleDominoPlayerLeave(room, socket.user.id);
+              return;
+            }
+
+            if (["chess", "carrom", "billiards"].includes(String(room.game || ""))) {
+              handleTwoPlayerWithdrawalV179(room, socket.user.id, "فوز بسبب انقطاع اللاعب الآخر");
+              return;
+            }
+          }
+        } catch {}
       }
 
       if (room.game === "domino") {
@@ -2920,3 +4796,18 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log("🌐 http://localhost:" + PORT);
   console.log("============================================");
 });
+
+// V221_QUICK_MATCH_ACK_SERVER_READY: room:create replies with ack so the app knows the player was really added to a waiting/playing room.
+
+// V225_PUBLIC_AVATAR_SERVER_LIMIT_READY: /me/profile accepts larger data:image avatar payloads so avatars are visible to opponents instead of local file:// paths.
+
+// V227_REGISTER_COUNTRY_AUTO_READY: register accepts countryCode from app device locale/timezone instead of forcing YE for every new account.
+
+// V233_BETA_TURN_15S_SERVER_READY: billiards/carrom server turn timeout is 15s so real turn transfer matches the visible 15-to-1 countdown; domino/chess unchanged.
+
+// V233B_SET_BETA_TURN_15S_READY: setBetaTurnV138 now uses BETA_TURN_MS_V233=15000 so every billiards/carrom turn deadline matches visible countdown.
+
+// V235_SERVER_AUTHORITATIVE_BETA_TURN_READY: beta turnDone emits the new authoritative turnUserId/turnEndsAt from server.
+
+
+// V285_BILLIARDS_REFERENCE_EXACT_VISUAL_RULES_READY: billiards beta turn timer uses 25s; carrom keeps V233 15s.
