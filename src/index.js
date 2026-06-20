@@ -231,7 +231,13 @@ app.get("/app-config", (req, res) => {
     rewardedAdCoins: 1500,
     rewardedDailyLimit: 50,
     rewardedCooldownMinutes: 5,
-    featureFlagsVersion: 1,
+    featureFlagsVersion: 2,
+    // V434A_REMOTE_UI_CONFIG_READY: إعدادات واجهة يتحكم بها Render ويطبقها زر تحديث البيانات.
+    uiConfigVersion: 1,
+    ui: {
+      giftButtonBottom: 88,
+      giftButtonBottomBilliards: 82
+    },
     features: {
       domino: true,
       chess: true,
