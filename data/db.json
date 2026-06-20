@@ -1,27 +1,128 @@
 {
   "users": [
     {
-      "id": "user_moz23qlu_kpa7hq",
-      "username": "hady2",
-      "passwordHash": "$2a$10$.hSxBnYUmop3iaVlLWMlVerFUwkA9x1ChtVMoWuIUqXn.pULrkNvu",
-      "points": 320,
-      "coins": 100000000,
-      "wins": 32,
-      "losses": 36,
+      "id": "user_mpro8mae_dke6w1",
+      "username": "hady22333",
+      "email": "hadyalhsamy6@gmail.com",
+      "passwordHash": "$2a$10$0TRYzUUhFjbyA4LV07V0a.net6LKR.C6.47DPrwI5kNsP66Y2aC4i",
+      "deviceId": "dev_mpro7f56_oom1lcag7n",
+      "inviteCode": "HADYXU7192",
+      "referredBy": "",
+      "referredByCode": "",
+      "points": 300,
+      "coins": 99667760,
+      "wins": 30,
+      "losses": 155,
       "level": 4,
-      "createdAt": "2026-05-10T00:50:36.020Z",
-      "ownerCoinsUpdatedAt": "2026-06-02T00:00:00.000Z"
-    },
-    {
-      "id": "user_moz28hkm_30yjn0",
-      "username": "hady",
-      "passwordHash": "$2a$10$bvjRb9jduow/A3Cp.OK4g.7dcB274tFrI0LC3sKZlcMS7Be4A97XO",
-      "points": 0,
-      "coins": 100,
-      "wins": 0,
-      "losses": 0,
-      "level": 1,
-      "createdAt": "2026-05-10T00:54:17.592Z"
+      "avatarUri": "",
+      "countryCode": "YE",
+      "friends": [],
+      "createdAt": "2026-05-30T01:27:48.182Z",
+      "ownerTestCoinsV138": true,
+      "ownerTestCoinsUpdatedAt": "2026-06-01T22:52:22.194Z",
+      "passwordUpdatedOwnerV138": true,
+      "passwordUpdatedAt": "2026-06-01T23:33:55.605Z",
+      "lastLoginDeviceId": "dev_mqd2wdgn_qqpwl2ffo9",
+      "lastLoginAt": "2026-06-17T00:40:39.591Z",
+      "balance": 100000000,
+      "credits": 100000000,
+      "money": 100000000,
+      "wallet": {
+        "coins": 100000000,
+        "balance": 100000000,
+        "credits": 100000000
+      },
+      "economy": {
+        "dailyRewardDate": "2026-06-17",
+        "lastDailyRewardAt": "2026-06-17T00:27:06.585Z"
+      },
+      "lastInviteAt": "2026-06-10T20:53:16.101Z",
+      "isAdmin": true,
+      "role": "owner",
+      "tasks": {
+        "2026-06-17": {
+          "login": "2026-06-17T05:22:11.898Z",
+          "play_match": "2026-06-17T05:22:16.398Z",
+          "send_message": "2026-06-17T05:22:26.434Z",
+          "invite_friend": "2026-06-17T05:22:37.413Z",
+          "post_share": "2026-06-17T05:22:45.391Z",
+          "like_post": "2026-06-17T05:22:48.582Z"
+        }
+      },
+      "walletLog": [
+        {
+          "type": "gift",
+          "giftType": "royal_horse_15s",
+          "giftName": "الخيل الملكي",
+          "originalPrice": 140000,
+          "vipDiscountPercent": 20,
+          "coins": -112000,
+          "at": "2026-06-18T04:00:36.199Z"
+        },
+        {
+          "type": "vip_subscription",
+          "plan": "monthly_vip_v415a",
+          "level": 1,
+          "coins": -5000,
+          "days": 30,
+          "expiresAt": "2026-07-18T03:59:53.344Z",
+          "at": "2026-06-18T03:59:53.351Z"
+        },
+        {
+          "type": "task",
+          "taskId": "like_post",
+          "coins": 400,
+          "at": "2026-06-17T05:22:48.582Z"
+        },
+        {
+          "type": "task",
+          "taskId": "post_share",
+          "coins": 700,
+          "at": "2026-06-17T05:22:45.391Z"
+        },
+        {
+          "type": "task",
+          "taskId": "invite_friend",
+          "coins": 1200,
+          "at": "2026-06-17T05:22:37.413Z"
+        },
+        {
+          "type": "task",
+          "taskId": "send_message",
+          "coins": 600,
+          "at": "2026-06-17T05:22:26.435Z"
+        },
+        {
+          "type": "task",
+          "taskId": "play_match",
+          "coins": 800,
+          "at": "2026-06-17T05:22:16.398Z"
+        },
+        {
+          "type": "task",
+          "taskId": "login",
+          "coins": 500,
+          "at": "2026-06-17T05:22:11.898Z"
+        }
+      ],
+      "vipLevel": 1,
+      "vipActivatedAt": "2026-06-18T03:59:53.351Z",
+      "vipSubscriptionStatus": "active",
+      "vipPlan": "monthly_vip_v415a",
+      "vipExpiresAt": "2026-07-18T03:59:53.344Z",
+      "phone": "",
+      "isOwner": true,
+      "isFounder": true,
+      "authMethods": {
+        "password": true,
+        "email": true,
+        "phone": false,
+        "google": false,
+        "facebook": false,
+        "tiktok": false
+      },
+      "restoredToRenderV433C": true,
+      "restoredAtV433C": "2026-06-20T18:43:11.084Z"
     }
   ],
   "matches": [
@@ -501,5 +602,6 @@
       "winnerId": "bot_room_mp53d9u_1",
       "endedAt": "2026-05-14T06:40:11.259Z"
     }
-  ]
+  ],
+  "devices": {}
 }
