@@ -222,7 +222,7 @@ app.use("/uploads", express.static(UPLOADS_DIR_V154));
 app.get("/app-config", (req, res) => {
   res.json({
     ok: true,
-    configVersion: 1,
+    configVersion: 2,
     appMessage: "مرحبًا بك في أنا الأفضل 👑",
     updateMessage: "تم تحديث بيانات التطبيق بنجاح ✅",
     maintenance: false,
@@ -237,6 +237,16 @@ app.get("/app-config", (req, res) => {
     ui: {
       giftButtonBottom: 88,
       giftButtonBottomBilliards: 82
+    },
+    // V435_UPDATE_DATA_NOTICE_CONFIG_READY: إشعار تطوير يظهر على زر تحديث البيانات من Render.
+    updateNoticeVersion: 1,
+    updateNotice: {
+      enabled: true,
+      type: "ready",
+      badgeText: "جديد",
+      title: "✨ تطوير جديد",
+      message: "تم تجهيز تحسينات جديدة: رفع زر الهدايا فوق أزرار الهاتف، وربط إعدادات التطوير بزر تحديث البيانات.",
+      showBadgeOnRefreshButton: true
     },
     features: {
       domino: true,
