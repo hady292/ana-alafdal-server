@@ -4410,6 +4410,47 @@ socket.emit("rooms:list", roomList());
       createdAt: new Date().toISOString()
     };
 
+    // V432_GIFT_RECEIVER_DELIVERY_PERSIST:
+    // حفظ الهدية في حساب المستلم، وحفظ سجل مبسط عند المرسل.
+    try {
+      const receiverObjV432 = dbGiftV414.users.find((u) => String(u.id) === String(receiver.id));
+      if (receiverObjV432) {
+        receiverObjV432.receivedGifts = Array.isArray(receiverObjV432.receivedGifts) ? receiverObjV432.receivedGifts : [];
+        receiverObjV432.receivedGifts.unshift({
+          id: giftEvent.id,
+          roomId: giftEvent.roomId,
+          fromUserId: giftEvent.fromUserId,
+          fromName: giftEvent.fromName,
+          giftType: giftEvent.giftType,
+          giftName: giftEvent.giftName,
+          price: giftEvent.price,
+          createdAt: giftEvent.createdAt,
+          status: "received"
+        });
+        receiverObjV432.receivedGifts = receiverObjV432.receivedGifts.slice(0, 100);
+      }
+
+      userObjV414.sentGifts = Array.isArray(userObjV414.sentGifts) ? userObjV414.sentGifts : [];
+      userObjV414.sentGifts.unshift({
+        id: giftEvent.id,
+        roomId: giftEvent.roomId,
+        toUserId: giftEvent.toUserId,
+        toName: giftEvent.toName,
+        giftType: giftEvent.giftType,
+        giftName: giftEvent.giftName,
+        price: giftEvent.price,
+        createdAt: giftEvent.createdAt,
+        status: "sent"
+      });
+      userObjV414.sentGifts = userObjV414.sentGifts.slice(0, 100);
+
+      writeDb(dbGiftV414);
+      try { emitUserUpdateV136IK(String(receiver.id)); } catch {}
+      try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
+    } catch (giftPersistErrV432) {
+      console.error("V432_GIFT_RECEIVER_DELIVERY_PERSIST_FAILED", giftPersistErrV432);
+    }
+
     room.giftHistoryV178.push(giftEvent);
     room.giftHistoryV178 = room.giftHistoryV178.slice(-100);
 
