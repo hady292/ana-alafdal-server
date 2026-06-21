@@ -3086,7 +3086,35 @@ function emitBotWagerLimitV444(room) {
   } catch {}
 }
 
+// V445C_FOUR_PLAYER_FREE_WAGER_SERVER_GUARD:
+// ألعاب 4 لاعبين المحددة مجانية على السيرفر حتى لو نسخة قديمة أرسلت wager.
+// دومينو 4 شراكة + كيرم 4 + بلياردو 4 = بدون خصم وبدون جائزة رهان.
+function isFourPlayerFreeWagerRoomV445C(room) {
+  const game = String(room?.game || "");
+  const maxPlayers = Number(room?.maxPlayers || 2);
+  const dominoMode = String(room?.dominoMode || "classic");
+  return maxPlayers === 4 && (
+    (game === "domino" && dominoMode === "teams") ||
+    game === "carrom" ||
+    game === "billiards"
+  );
+}
+
+function forceFourPlayerFreeWagerV445C(room) {
+  if (!isFourPlayerFreeWagerRoomV445C(room)) return false;
+  room.wager = room.wager || {};
+  if (!room.wager.locked) {
+    room.wager.amount = 0;
+    room.wager.pot = 0;
+    room.wager.paid = {};
+    room.wager.paidOut = false;
+  }
+  room.wager.fourPlayerFreeV445C = true;
+  return true;
+}
+
 function collectRoomWagerV136IK(room) {
+  if (forceFourPlayerFreeWagerV445C(room)) return true;
   if (!room || !room.wager || !(room.wager.amount > 0)) return true;
   if (room.wager.locked) return true;
 
@@ -4181,7 +4209,14 @@ socket.emit("rooms:list", roomList());
 
     const roomMaxPlayers = Number(maxPlayers) === 4 ? 4 : 2;
     const safeDominoMode = game === "domino" && roomMaxPlayers === 4 && String(dominoMode) === "teams" ? "teams" : "classic";
-    const safeWagerV136IK = normalizeWagerV136IK(wager);
+    // V445C_FOUR_PLAYER_FREE_WAGER_SERVER_GUARD:
+    // السيرفر لا يقبل رهان في دومينو 4 شراكة أو كيرم 4 أو بلياردو 4.
+    const isFourPlayerFreeCreateV445C = roomMaxPlayers === 4 && (
+      (game === "domino" && safeDominoMode === "teams") ||
+      game === "carrom" ||
+      game === "billiards"
+    );
+    const safeWagerV136IK = isFourPlayerFreeCreateV445C ? 0 : normalizeWagerV136IK(wager);
 
     {
       const db = readDb();
@@ -4209,6 +4244,7 @@ socket.emit("rooms:list", roomList());
         if (game === "domino" && rDominoMode !== safeDominoMode) return false;
         if ((r.players || []).length >= (r.maxPlayers || 2)) return false;
         if ((r.players || []).some((p) => p.id === socket.user.id)) return false;
+        forceFourPlayerFreeWagerV445C(r);
         const existingWager = Number(r?.wager?.amount || 0);
         if (existingWager && existingWager !== safeWagerV136IK) return false;
         return true;
@@ -4248,7 +4284,8 @@ socket.emit("rooms:list", roomList());
         pot: 0,
         paid: {},
         locked: false,
-        paidOut: false
+        paidOut: false,
+        fourPlayerFreeV445C: !!isFourPlayerFreeCreateV445C
       },
       status: "waiting",
       players: [
@@ -4335,6 +4372,7 @@ socket.emit("rooms:list", roomList());
 
     const existing = room.players.find((p) => p.id === socket.user.id);
 
+    forceFourPlayerFreeWagerV445C(room);
     if (!existing && room.wager && room.wager.amount > 0 && !isBotIdV136IK(socket.user.id)) {
       const db = readDb();
       const user = db.users.find((u) => u.id === socket.user.id);
