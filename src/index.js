@@ -4352,7 +4352,7 @@ socket.emit("rooms:list", roomList());
 
     const receiver = (room.players || []).find((p) => String(p.id) === String(toUserId));
     if (!receiver) return socket.emit("error:message", "GIFT_RECEIVER_NOT_IN_ROOM");
-    // V438A_GIFT_INVENTORY_TRANSFER_SERVER_ONLY: منع إرسال الهدية لنفس اللاعب حتى لا يستغل المخزون.
+
     if (String(receiver.id) === String(sender.id)) {
       return socket.emit("error:message", "لا يمكنك إرسال الهدية لنفسك");
     }
@@ -4383,71 +4383,61 @@ socket.emit("rooms:list", roomList());
       return socket.emit("error:message", "GIFT_NOT_READY");
     }
 
-    const freeGiftMonthV178 = false; // V414_GIFTS_PAID_ONLY_SERVER_DEDUCT_READY: لا يوجد شهر مجاني للهدايا
+    const freeGiftMonthV178 = false;
     const price = Number(giftPricesV178[safeGiftType] || 0);
 
-    // V414_GIFTS_PAID_ONLY_SERVER_DEDUCT_READY:
-    // الخصم الحقيقي من db.json قبل إرسال الهدية لكل اللاعبين.
     const dbGiftV414 = readDb();
     const userObjV414 = dbGiftV414.users.find((u) => String(u.id) === String(socket.user.id));
     if (!userObjV414) {
       return socket.emit("error:message", "USER_NOT_FOUND");
     }
 
-    const vipGiftDiscountPercentV415A = isVipSubscriptionActiveV415A(userObjV414) ? VIP_GIFT_DISCOUNT_PERCENT_V415A : 0;
-    const finalGiftPriceV415A = Math.max(1, Math.round(price * (100 - vipGiftDiscountPercentV415A) / 100));
-
-    // V438A_GIFT_INVENTORY_TRANSFER_SERVER_ONLY:
-    // إذا كان المرسل يملك هذه الهدية في مخزونه، يرسلها مرة واحدة بدون خصم كوينز.
-    // إذا لا يملكها في المخزون، يتم شراؤها وإرسالها بالكوينز كالسابق.
-    userObjV414.giftInventory = (
-      userObjV414.giftInventory &&
-      typeof userObjV414.giftInventory === "object" &&
-      !Array.isArray(userObjV414.giftInventory)
-    ) ? userObjV414.giftInventory : {};
-
-    const senderGiftCountV438A = Math.max(0, Math.floor(Number(userObjV414.giftInventory[safeGiftType] || 0) || 0));
-    const useGiftInventoryV438A = senderGiftCountV438A > 0;
-    const giftSourceV438A = useGiftInventoryV438A ? "inventory" : "coins";
-    let chargedGiftPriceV438A = 0;
-
-    userObjV414.walletLog = Array.isArray(userObjV414.walletLog) ? userObjV414.walletLog : [];
-
-    if (useGiftInventoryV438A) {
-      userObjV414.giftInventory[safeGiftType] = Math.max(0, senderGiftCountV438A - 1);
-      userObjV414.walletLog.unshift({
-        type: "gift_inventory_send",
-        giftType: safeGiftType,
-        giftName: giftNamesV178[safeGiftType] || safeGiftType,
-        originalPrice: price,
-        vipDiscountPercent: vipGiftDiscountPercentV415A,
-        coins: 0,
-        inventoryDelta: -1,
-        inventoryAfter: userObjV414.giftInventory[safeGiftType],
-        at: new Date().toISOString()
-      });
-    } else {
-      chargedGiftPriceV438A = finalGiftPriceV415A;
-      const balanceV414 = Number(userObjV414.coins || 0);
-      if (balanceV414 < finalGiftPriceV415A) {
-        return socket.emit("error:message", `رصيدك لا يكفي لإرسال هذه الهدية: ${finalGiftPriceV415A} كوينز`);
-      }
-
-      userObjV414.coins = Math.max(0, balanceV414 - finalGiftPriceV415A);
-      userObjV414.walletLog.unshift({
-        type: "gift",
-        giftType: safeGiftType,
-        giftName: giftNamesV178[safeGiftType] || safeGiftType,
-        originalPrice: price,
-        vipDiscountPercent: vipGiftDiscountPercentV415A,
-        coins: -finalGiftPriceV415A,
-        at: new Date().toISOString()
-      });
+    const receiverObjV438E = dbGiftV414.users.find((u) => String(u.id) === String(receiver.id));
+    if (!receiverObjV438E) {
+      return socket.emit("error:message", "GIFT_RECEIVER_USER_NOT_FOUND");
     }
 
+    const vipGiftDiscountPercentV415A = isVipSubscriptionActiveV415A(userObjV414) ? VIP_GIFT_DISCOUNT_PERCENT_V415A : 0;
+    const finalGiftPriceV415A = Math.max(1, Math.round(price * (100 - vipGiftDiscountPercentV415A) / 100));
+    const balanceV438E = Math.max(0, Math.floor(Number(userObjV414.coins || 0) || 0));
+
+    if (balanceV438E < finalGiftPriceV415A) {
+      return socket.emit("error:message", `رصيدك لا يكفي لإرسال هذه الهدية: ${finalGiftPriceV415A} كوينز`);
+    }
+
+    // V438E_GIFT_VALUE_TO_RECEIVER_SERVER_ONLY:
+    // الهدية لم تعد تضيف "أسد/تاج/سيارة" كمخزون. المستلم يحصل على قيمة الهدية ككوينز.
+    // المستلم يحصل على نفس المبلغ الذي دفعه المرسل بعد أي خصم VIP، حتى لا يحدث تضخم اقتصادي.
+    userObjV414.coins = Math.max(0, balanceV438E - finalGiftPriceV415A);
+    receiverObjV438E.coins = Math.max(0, Math.floor(Number(receiverObjV438E.coins || 0) || 0)) + finalGiftPriceV415A;
+
+    userObjV414.walletLog = Array.isArray(userObjV414.walletLog) ? userObjV414.walletLog : [];
+    userObjV414.walletLog.unshift({
+      type: "gift_sent_value_v438e",
+      giftType: safeGiftType,
+      giftName: giftNamesV178[safeGiftType] || safeGiftType,
+      originalPrice: price,
+      vipDiscountPercent: vipGiftDiscountPercentV415A,
+      coins: -finalGiftPriceV415A,
+      toUserId: String(receiver.id),
+      toName: receiver.username || receiver.name || "لاعب",
+      at: new Date().toISOString()
+    });
     userObjV414.walletLog = userObjV414.walletLog.slice(0, 30);
-    writeDb(dbGiftV414);
-    try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
+
+    receiverObjV438E.walletLog = Array.isArray(receiverObjV438E.walletLog) ? receiverObjV438E.walletLog : [];
+    receiverObjV438E.walletLog.unshift({
+      type: "gift_value_received_v438e",
+      giftType: safeGiftType,
+      giftName: giftNamesV178[safeGiftType] || safeGiftType,
+      originalPrice: price,
+      vipDiscountPercent: vipGiftDiscountPercentV415A,
+      coins: finalGiftPriceV415A,
+      fromUserId: String(sender.id),
+      fromName: sender.username || sender.name || "لاعب",
+      at: new Date().toISOString()
+    });
+    receiverObjV438E.walletLog = receiverObjV438E.walletLog.slice(0, 30);
 
     if (!room.giftHistoryV178) room.giftHistoryV178 = [];
 
@@ -4459,50 +4449,38 @@ socket.emit("rooms:list", roomList());
       toUserId: receiver.id,
       toName: receiver.username || receiver.name || "لاعب",
       giftType: safeGiftType,
-      giftName: giftNamesV178[safeGiftType] || safeGiftType,
-      price: chargedGiftPriceV438A,
+      giftName: `${giftNamesV178[safeGiftType] || safeGiftType} (+${finalGiftPriceV415A} كوينز للمستلم)`,
+      price: finalGiftPriceV415A,
       originalPrice: price,
       vipDiscountPercent: vipGiftDiscountPercentV415A,
       free: freeGiftMonthV178,
-      giftSource: giftSourceV438A,
-      fromInventory: useGiftInventoryV438A,
-      inventoryDeltaSender: useGiftInventoryV438A ? -1 : 0,
-      inventoryDeltaReceiver: 1,
+      giftSource: "coins_value_to_receiver",
+      giftValueToReceiver: true,
+      receiverCoinsDelta: finalGiftPriceV415A,
+      fromInventory: false,
+      inventoryDeltaSender: 0,
+      inventoryDeltaReceiver: 0,
       createdAt: new Date().toISOString()
     };
 
-    // V432_GIFT_RECEIVER_DELIVERY_PERSIST:
-    // حفظ الهدية في حساب المستلم، وحفظ سجل مبسط عند المرسل.
+    // V432 + V438E:
+    // حفظ سجل الهدية عند المستلم والمرسل، بدون إضافة giftInventory.
     try {
-      const receiverObjV432 = dbGiftV414.users.find((u) => String(u.id) === String(receiver.id));
-      if (receiverObjV432) {
-        // V438A_GIFT_INVENTORY_TRANSFER_SERVER_ONLY:
-        // كل هدية مستلمة تنضاف إلى مخزون المستلم ليستطيع إرسالها مرة واحدة لاحقًا.
-        receiverObjV432.giftInventory = (
-          receiverObjV432.giftInventory &&
-          typeof receiverObjV432.giftInventory === "object" &&
-          !Array.isArray(receiverObjV432.giftInventory)
-        ) ? receiverObjV432.giftInventory : {};
-        const receiverGiftCountV438A = Math.max(0, Math.floor(Number(receiverObjV432.giftInventory[safeGiftType] || 0) || 0));
-        receiverObjV432.giftInventory[safeGiftType] = receiverGiftCountV438A + 1;
-
-        receiverObjV432.receivedGifts = Array.isArray(receiverObjV432.receivedGifts) ? receiverObjV432.receivedGifts : [];
-        receiverObjV432.receivedGifts.unshift({
-          id: giftEvent.id,
-          roomId: giftEvent.roomId,
-          fromUserId: giftEvent.fromUserId,
-          fromName: giftEvent.fromName,
-          giftType: giftEvent.giftType,
-          giftName: giftEvent.giftName,
-          price: giftEvent.price,
-          source: giftEvent.giftSource,
-          fromInventory: giftEvent.fromInventory,
-          inventoryDelta: 1,
-          createdAt: giftEvent.createdAt,
-          status: "received"
-        });
-        receiverObjV432.receivedGifts = receiverObjV432.receivedGifts.slice(0, 100);
-      }
+      receiverObjV438E.receivedGifts = Array.isArray(receiverObjV438E.receivedGifts) ? receiverObjV438E.receivedGifts : [];
+      receiverObjV438E.receivedGifts.unshift({
+        id: giftEvent.id,
+        roomId: giftEvent.roomId,
+        fromUserId: giftEvent.fromUserId,
+        fromName: giftEvent.fromName,
+        giftType: giftEvent.giftType,
+        giftName: giftEvent.giftName,
+        price: giftEvent.price,
+        valueCoins: finalGiftPriceV415A,
+        source: "value_to_receiver",
+        createdAt: giftEvent.createdAt,
+        status: "received_value"
+      });
+      receiverObjV438E.receivedGifts = receiverObjV438E.receivedGifts.slice(0, 100);
 
       userObjV414.sentGifts = Array.isArray(userObjV414.sentGifts) ? userObjV414.sentGifts : [];
       userObjV414.sentGifts.unshift({
@@ -4513,19 +4491,19 @@ socket.emit("rooms:list", roomList());
         giftType: giftEvent.giftType,
         giftName: giftEvent.giftName,
         price: giftEvent.price,
-        source: giftEvent.giftSource,
-        fromInventory: giftEvent.fromInventory,
-        inventoryDelta: giftEvent.inventoryDeltaSender,
+        valueCoins: finalGiftPriceV415A,
+        source: "value_to_receiver",
         createdAt: giftEvent.createdAt,
-        status: "sent"
+        status: "sent_value"
       });
       userObjV414.sentGifts = userObjV414.sentGifts.slice(0, 100);
 
       writeDb(dbGiftV414);
       try { emitUserUpdateV136IK(String(receiver.id)); } catch {}
       try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
-    } catch (giftPersistErrV432) {
-      console.error("V432_GIFT_RECEIVER_DELIVERY_PERSIST_FAILED", giftPersistErrV432);
+    } catch (giftPersistErrV438E) {
+      console.error("V438E_GIFT_VALUE_TO_RECEIVER_PERSIST_FAILED", giftPersistErrV438E);
+      return socket.emit("error:message", "تعذر حفظ الهدية الآن");
     }
 
     room.giftHistoryV178.push(giftEvent);
