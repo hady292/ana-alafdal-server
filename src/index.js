@@ -4348,6 +4348,10 @@ socket.emit("rooms:list", roomList());
 
     const receiver = (room.players || []).find((p) => String(p.id) === String(toUserId));
     if (!receiver) return socket.emit("error:message", "GIFT_RECEIVER_NOT_IN_ROOM");
+    // V438A_GIFT_INVENTORY_TRANSFER_SERVER_ONLY: منع إرسال الهدية لنفس اللاعب حتى لا يستغل المخزون.
+    if (String(receiver.id) === String(sender.id)) {
+      return socket.emit("error:message", "لا يمكنك إرسال الهدية لنفسك");
+    }
 
     const safeGiftType = String(giftType || "").trim().slice(0, 40);
 
@@ -4388,22 +4392,55 @@ socket.emit("rooms:list", roomList());
 
     const vipGiftDiscountPercentV415A = isVipSubscriptionActiveV415A(userObjV414) ? VIP_GIFT_DISCOUNT_PERCENT_V415A : 0;
     const finalGiftPriceV415A = Math.max(1, Math.round(price * (100 - vipGiftDiscountPercentV415A) / 100));
-    const balanceV414 = Number(userObjV414.coins || 0);
-    if (balanceV414 < finalGiftPriceV415A) {
-      return socket.emit("error:message", `رصيدك لا يكفي لإرسال هذه الهدية: ${finalGiftPriceV415A} كوينز`);
+
+    // V438A_GIFT_INVENTORY_TRANSFER_SERVER_ONLY:
+    // إذا كان المرسل يملك هذه الهدية في مخزونه، يرسلها مرة واحدة بدون خصم كوينز.
+    // إذا لا يملكها في المخزون، يتم شراؤها وإرسالها بالكوينز كالسابق.
+    userObjV414.giftInventory = (
+      userObjV414.giftInventory &&
+      typeof userObjV414.giftInventory === "object" &&
+      !Array.isArray(userObjV414.giftInventory)
+    ) ? userObjV414.giftInventory : {};
+
+    const senderGiftCountV438A = Math.max(0, Math.floor(Number(userObjV414.giftInventory[safeGiftType] || 0) || 0));
+    const useGiftInventoryV438A = senderGiftCountV438A > 0;
+    const giftSourceV438A = useGiftInventoryV438A ? "inventory" : "coins";
+    let chargedGiftPriceV438A = 0;
+
+    userObjV414.walletLog = Array.isArray(userObjV414.walletLog) ? userObjV414.walletLog : [];
+
+    if (useGiftInventoryV438A) {
+      userObjV414.giftInventory[safeGiftType] = Math.max(0, senderGiftCountV438A - 1);
+      userObjV414.walletLog.unshift({
+        type: "gift_inventory_send",
+        giftType: safeGiftType,
+        giftName: giftNamesV178[safeGiftType] || safeGiftType,
+        originalPrice: price,
+        vipDiscountPercent: vipGiftDiscountPercentV415A,
+        coins: 0,
+        inventoryDelta: -1,
+        inventoryAfter: userObjV414.giftInventory[safeGiftType],
+        at: new Date().toISOString()
+      });
+    } else {
+      chargedGiftPriceV438A = finalGiftPriceV415A;
+      const balanceV414 = Number(userObjV414.coins || 0);
+      if (balanceV414 < finalGiftPriceV415A) {
+        return socket.emit("error:message", `رصيدك لا يكفي لإرسال هذه الهدية: ${finalGiftPriceV415A} كوينز`);
+      }
+
+      userObjV414.coins = Math.max(0, balanceV414 - finalGiftPriceV415A);
+      userObjV414.walletLog.unshift({
+        type: "gift",
+        giftType: safeGiftType,
+        giftName: giftNamesV178[safeGiftType] || safeGiftType,
+        originalPrice: price,
+        vipDiscountPercent: vipGiftDiscountPercentV415A,
+        coins: -finalGiftPriceV415A,
+        at: new Date().toISOString()
+      });
     }
 
-    userObjV414.coins = Math.max(0, balanceV414 - finalGiftPriceV415A);
-    userObjV414.walletLog = Array.isArray(userObjV414.walletLog) ? userObjV414.walletLog : [];
-    userObjV414.walletLog.unshift({
-      type: "gift",
-      giftType: safeGiftType,
-      giftName: giftNamesV178[safeGiftType] || safeGiftType,
-      originalPrice: price,
-      vipDiscountPercent: vipGiftDiscountPercentV415A,
-      coins: -finalGiftPriceV415A,
-      at: new Date().toISOString()
-    });
     userObjV414.walletLog = userObjV414.walletLog.slice(0, 30);
     writeDb(dbGiftV414);
     try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
@@ -4419,10 +4456,14 @@ socket.emit("rooms:list", roomList());
       toName: receiver.username || receiver.name || "لاعب",
       giftType: safeGiftType,
       giftName: giftNamesV178[safeGiftType] || safeGiftType,
-      price: finalGiftPriceV415A,
+      price: chargedGiftPriceV438A,
       originalPrice: price,
       vipDiscountPercent: vipGiftDiscountPercentV415A,
       free: freeGiftMonthV178,
+      giftSource: giftSourceV438A,
+      fromInventory: useGiftInventoryV438A,
+      inventoryDeltaSender: useGiftInventoryV438A ? -1 : 0,
+      inventoryDeltaReceiver: 1,
       createdAt: new Date().toISOString()
     };
 
@@ -4431,6 +4472,16 @@ socket.emit("rooms:list", roomList());
     try {
       const receiverObjV432 = dbGiftV414.users.find((u) => String(u.id) === String(receiver.id));
       if (receiverObjV432) {
+        // V438A_GIFT_INVENTORY_TRANSFER_SERVER_ONLY:
+        // كل هدية مستلمة تنضاف إلى مخزون المستلم ليستطيع إرسالها مرة واحدة لاحقًا.
+        receiverObjV432.giftInventory = (
+          receiverObjV432.giftInventory &&
+          typeof receiverObjV432.giftInventory === "object" &&
+          !Array.isArray(receiverObjV432.giftInventory)
+        ) ? receiverObjV432.giftInventory : {};
+        const receiverGiftCountV438A = Math.max(0, Math.floor(Number(receiverObjV432.giftInventory[safeGiftType] || 0) || 0));
+        receiverObjV432.giftInventory[safeGiftType] = receiverGiftCountV438A + 1;
+
         receiverObjV432.receivedGifts = Array.isArray(receiverObjV432.receivedGifts) ? receiverObjV432.receivedGifts : [];
         receiverObjV432.receivedGifts.unshift({
           id: giftEvent.id,
@@ -4440,6 +4491,9 @@ socket.emit("rooms:list", roomList());
           giftType: giftEvent.giftType,
           giftName: giftEvent.giftName,
           price: giftEvent.price,
+          source: giftEvent.giftSource,
+          fromInventory: giftEvent.fromInventory,
+          inventoryDelta: 1,
           createdAt: giftEvent.createdAt,
           status: "received"
         });
@@ -4455,6 +4509,9 @@ socket.emit("rooms:list", roomList());
         giftType: giftEvent.giftType,
         giftName: giftEvent.giftName,
         price: giftEvent.price,
+        source: giftEvent.giftSource,
+        fromInventory: giftEvent.fromInventory,
+        inventoryDelta: giftEvent.inventoryDeltaSender,
         createdAt: giftEvent.createdAt,
         status: "sent"
       });
