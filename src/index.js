@@ -4069,34 +4069,8 @@ socket.emit("rooms:list", roomList());
     {
       const db = readDb();
       const creator = db.users.find((u) => u.id === socket.user.id);
-
-      // V438B_REAL_STARTER_COINS_FOR_WAGER_SERVER_ONLY:
-      // إصلاح بدون بناء جديد: الرصيد الظاهر محليًا لا يكفي للرهان، لذلك نعطي رصيد بداية حقيقي من السيرفر مرة واحدة فقط.
-      // لا ننقص أو نلمس الحسابات الكبيرة مثل المؤسس، ولا تتكرر المكافأة بعد استهلاكها.
-      const starterCoinsV438B = 10000;
-      if (creator) {
-        const currentCoinsV438B = Math.max(0, Math.floor(Number(creator.coins || 0) || 0));
-        const alreadyGrantedV438B = creator.starterCoinsGrantedV438B === true;
-
-        if (!alreadyGrantedV438B && currentCoinsV438B < starterCoinsV438B) {
-          const addedCoinsV438B = starterCoinsV438B - currentCoinsV438B;
-          creator.coins = starterCoinsV438B;
-          creator.starterCoinsGrantedV438B = true;
-          creator.starterCoinsGrantedAtV438B = new Date().toISOString();
-          creator.walletLog = Array.isArray(creator.walletLog) ? creator.walletLog : [];
-          creator.walletLog.unshift({
-            type: "starter_coins_v438b",
-            coins: addedCoinsV438B,
-            balanceAfter: creator.coins,
-            reason: "real_server_starter_balance_for_wager",
-            at: new Date().toISOString()
-          });
-          creator.walletLog = creator.walletLog.slice(0, 30);
-          writeDb(db);
-          try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
-        }
-      }
-
+      // V438C_CANCEL_STARTER_10000_KEEP_DAILY_ADS_SERVER_ONLY:
+      // إلغاء منح 10,000 عند الرهان. الرصيد الحقيقي يأتي من المكافأة اليومية والإعلانات والمهام فقط.
       if (!creator || Number(creator.coins || 0) < safeWagerV136IK) {
         replyCreateV221({ ok: false, error: `رصيدك لا يكفي لإنشاء رهان ${safeWagerV136IK} كوينز` });
         return socket.emit("error:message", `رصيدك لا يكفي لإنشاء رهان ${safeWagerV136IK} كوينز`);
