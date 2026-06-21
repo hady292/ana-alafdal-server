@@ -531,7 +531,9 @@ function publicUser(user) {
     level: user.level || 1,
     email: user.email || "",
     inviteCode: user.inviteCode || "",
-    friendsCount: Array.isArray(user.friends) ? user.friends.length : 0,
+    // V439_PUBLIC_USER_HIDE_FRIENDS_COUNT:
+    // لا تكشف عدد أصدقاء اللاعب ضمن البيانات العامة.
+    friendsCount: 0,
     avatarUri: user.avatarUri || "",
     countryCode: user.countryCode || "YE",
     vipLevel: Number(user.vipLevel || 0),
@@ -2004,7 +2006,9 @@ app.get("/users/:id/profile", requireAuth, (req, res) => {
       wins: target.wins || 0,
       losses: target.losses || 0,
       level: target.level || 1,
-      friendsCount: Array.isArray(target.friends) ? target.friends.length : 0,
+      // V439_PROFILE_HIDE_FRIENDS_COUNT:
+      // لا تكشف عدد أصدقاء اللاعب في صفحة بروفايل الآخرين.
+      friendsCount: 0,
       avatarUri: target.avatarUri || "",
       countryCode: target.countryCode || "YE"
     }
@@ -2476,7 +2480,9 @@ function publicRoom(room, userId) {
         coins: dbUser?.coins || 0,
         wins: dbUser?.wins || 0,
         losses: dbUser?.losses || 0,
-        friendsCount: Array.isArray(dbUser?.friends) ? dbUser.friends.length : 0
+        // V439_ROOM_PLAYER_HIDE_FRIENDS_COUNT:
+        // كرت الخصم لا يعرف عدد أصدقاء اللاعب.
+        friendsCount: 0
       };
     }),
     chat: room.chat.slice(-50),
@@ -4008,12 +4014,35 @@ io.on("connection", (socket) => {
   const setPresenceV139 = (status) => {
     const safeStatus = ["online", "menu", "playing", "offline"].includes(String(status)) ? String(status) : "online";
     socket.user.presenceStatusV139 = safeStatus;
-    socket.broadcast.emit("friend:presence", {
-      userId: socket.user.id,
-      username: socket.user.username,
-      status: safeStatus,
-      at: Date.now()
-    });
+      // V439_FRIEND_PRESENCE_REAL_FRIENDS_ONLY / V439B_FRIEND_PRIVACY_FLEX_READY:
+      // لا ترسل "صديقك دخل" لكل اللاعبين. ترسل فقط لمن هم أصدقاء حقيقيون في قاعدة البيانات.
+      try {
+        const dbPresenceV439 = readDb();
+        const mePresenceV439 = Array.isArray(dbPresenceV439.users)
+          ? dbPresenceV439.users.find((u) => String(u.id) === String(socket.user.id))
+          : null;
+        const friendIdsPresenceV439 = new Set(
+          Array.isArray(mePresenceV439?.friends)
+            ? mePresenceV439.friends.map((id) => String(id))
+            : []
+        );
+
+        for (const friendIdPresenceV439 of friendIdsPresenceV439) {
+          if (!friendIdPresenceV439 || friendIdPresenceV439 === String(socket.user.id)) continue;
+          const targetSocketIdPresenceV439 = connectedUserSocketsV137O.get(friendIdPresenceV439);
+          if (!targetSocketIdPresenceV439) continue;
+
+          io.to(targetSocketIdPresenceV439).emit("friend:presence", {
+            userId: socket.user.id,
+            username: socket.user.username,
+            status: safeStatus,
+            at: Date.now(),
+            friendsOnlyV439: true
+          });
+        }
+      } catch (presenceErrV439) {
+        console.error("V439_FRIEND_PRESENCE_REAL_FRIENDS_ONLY_FAILED", presenceErrV439);
+      }
     console.log("V139 presence:", socket.user.id, safeStatus);
   };
 
