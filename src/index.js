@@ -4389,13 +4389,15 @@ socket.emit("rooms:list", roomList());
     const safeGiftType = String(giftType || "").trim().slice(0, 40);
 
     const giftPricesV178 = {
-      royal_lion_8s: 50000,
-      legend_lion_15s: 150000,
-      super_car_15s: 150000,
+      // V440_GIFT_PRICES_PREMIUM_ECONOMY_READY:
+      // رفع أسعار الهدايا الفخمة حتى تكون لها قيمة وتحمي اقتصاد اللعبة.
+      royal_lion_8s: 200000,
+      legend_lion_15s: 300000,
+      super_car_15s: 220000,
       royal_fireworks_15s: 150000,
-      royal_wolf_15s: 145000,
-      royal_horse_15s: 140000,
-      royal_crown_15s: 160000
+      royal_wolf_15s: 180000,
+      royal_horse_15s: 200000,
+      royal_crown_15s: 250000
     };
 
     const giftNamesV178 = {
@@ -4428,6 +4430,12 @@ socket.emit("rooms:list", roomList());
 
     const vipGiftDiscountPercentV415A = isVipSubscriptionActiveV415A(userObjV414) ? VIP_GIFT_DISCOUNT_PERCENT_V415A : 0;
     const finalGiftPriceV415A = Math.max(1, Math.round(price * (100 - vipGiftDiscountPercentV415A) / 100));
+
+    // V440_GIFT_VALUE_ECONOMY_SINK_70_PERCENT:
+    // المرسل يدفع السعر النهائي، المستلم يحصل على 70% فقط، و30% تُحرق لحماية الاقتصاد.
+    const receiverGiftPercentV440 = 70;
+    const receiverGiftValueV440 = Math.max(1, Math.floor(finalGiftPriceV415A * receiverGiftPercentV440 / 100));
+    const giftEconomySinkV440 = Math.max(0, finalGiftPriceV415A - receiverGiftValueV440);
     const balanceV438E = Math.max(0, Math.floor(Number(userObjV414.coins || 0) || 0));
 
     if (balanceV438E < finalGiftPriceV415A) {
@@ -4438,7 +4446,7 @@ socket.emit("rooms:list", roomList());
     // الهدية لم تعد تضيف "أسد/تاج/سيارة" كمخزون. المستلم يحصل على قيمة الهدية ككوينز.
     // المستلم يحصل على نفس المبلغ الذي دفعه المرسل بعد أي خصم VIP، حتى لا يحدث تضخم اقتصادي.
     userObjV414.coins = Math.max(0, balanceV438E - finalGiftPriceV415A);
-    receiverObjV438E.coins = Math.max(0, Math.floor(Number(receiverObjV438E.coins || 0) || 0)) + finalGiftPriceV415A;
+    receiverObjV438E.coins = Math.max(0, Math.floor(Number(receiverObjV438E.coins || 0) || 0)) + receiverGiftValueV440;
 
     userObjV414.walletLog = Array.isArray(userObjV414.walletLog) ? userObjV414.walletLog : [];
     userObjV414.walletLog.unshift({
@@ -4461,7 +4469,10 @@ socket.emit("rooms:list", roomList());
       giftName: giftNamesV178[safeGiftType] || safeGiftType,
       originalPrice: price,
       vipDiscountPercent: vipGiftDiscountPercentV415A,
-      coins: finalGiftPriceV415A,
+      coins: receiverGiftValueV440,
+      giftPaidPrice: finalGiftPriceV415A,
+      giftEconomySink: giftEconomySinkV440,
+      receiverGiftPercent: receiverGiftPercentV440,
       fromUserId: String(sender.id),
       fromName: sender.username || sender.name || "لاعب",
       at: new Date().toISOString()
@@ -4478,14 +4489,17 @@ socket.emit("rooms:list", roomList());
       toUserId: receiver.id,
       toName: receiver.username || receiver.name || "لاعب",
       giftType: safeGiftType,
-      giftName: `${giftNamesV178[safeGiftType] || safeGiftType} (+${finalGiftPriceV415A} كوينز للمستلم)`,
+      giftName: `${giftNamesV178[safeGiftType] || safeGiftType} (+${receiverGiftValueV440} كوينز للمستلم)`,
       price: finalGiftPriceV415A,
       originalPrice: price,
       vipDiscountPercent: vipGiftDiscountPercentV415A,
       free: freeGiftMonthV178,
       giftSource: "coins_value_to_receiver",
       giftValueToReceiver: true,
-      receiverCoinsDelta: finalGiftPriceV415A,
+      receiverCoinsDelta: receiverGiftValueV440,
+      receiverGiftPercentV440,
+      paidGiftPriceV440: finalGiftPriceV415A,
+      giftEconomySinkV440,
       fromInventory: false,
       inventoryDeltaSender: 0,
       inventoryDeltaReceiver: 0,
@@ -4504,7 +4518,10 @@ socket.emit("rooms:list", roomList());
         giftType: giftEvent.giftType,
         giftName: giftEvent.giftName,
         price: giftEvent.price,
-        valueCoins: finalGiftPriceV415A,
+        valueCoins: receiverGiftValueV440,
+        paidPrice: finalGiftPriceV415A,
+        economySink: giftEconomySinkV440,
+        receiverPercent: receiverGiftPercentV440,
         source: "value_to_receiver",
         createdAt: giftEvent.createdAt,
         status: "received_value"
@@ -4520,7 +4537,10 @@ socket.emit("rooms:list", roomList());
         giftType: giftEvent.giftType,
         giftName: giftEvent.giftName,
         price: giftEvent.price,
-        valueCoins: finalGiftPriceV415A,
+        valueCoins: receiverGiftValueV440,
+        paidPrice: finalGiftPriceV415A,
+        economySink: giftEconomySinkV440,
+        receiverPercent: receiverGiftPercentV440,
         source: "value_to_receiver",
         createdAt: giftEvent.createdAt,
         status: "sent_value"
