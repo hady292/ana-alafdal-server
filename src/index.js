@@ -3060,6 +3060,32 @@ function emitUserUpdateV136IK(userId) {
   }
 }
 
+// V444_BOT_WAGER_1000_ONLY_SERVER_ONLY:
+// أي غرفة فيها بوت أو وضعها قد يضيف بوت لاحقًا لا تسمح إلا برهان 1,000 فقط.
+// الرهانات العالية تبقى للبشر فقط.
+const BOT_WAGER_LIMIT_V444 = 1000;
+const BOT_WAGER_LIMIT_MESSAGE_V444 = "رهان البوت 1,000 فقط";
+
+function isBotLimitedWagerRoomV444(room) {
+  const players = Array.isArray(room?.players) ? room.players : [];
+  const hasBot = players.some((p) => isBotIdV136IK(p?.id));
+  const mode = String(room?.matchMode || "live").toLowerCase();
+  return hasBot || mode === "bot" || mode === "quick";
+}
+
+function getRoomWagerAmountV444(room) {
+  return Math.max(0, Math.floor(Number(room?.wager?.amount || room?.wagerAmount || 0) || 0));
+}
+
+function emitBotWagerLimitV444(room) {
+  try {
+    for (const player of (room?.players || [])) {
+      if (!player || isBotIdV136IK(player.id)) continue;
+      if (player.socketId) io.to(player.socketId).emit("error:message", BOT_WAGER_LIMIT_MESSAGE_V444);
+    }
+  } catch {}
+}
+
 function collectRoomWagerV136IK(room) {
   if (!room || !room.wager || !(room.wager.amount > 0)) return true;
   if (room.wager.locked) return true;
@@ -3076,6 +3102,12 @@ function collectRoomWagerV136IK(room) {
       room.wager.lastError = "INSUFFICIENT_COINS";
       return false;
     }
+  }
+
+  if (isBotLimitedWagerRoomV444(room) && amount > BOT_WAGER_LIMIT_V444) {
+    room.wager.lastError = "BOT_WAGER_LIMIT_1000_V444";
+    emitBotWagerLimitV444(room);
+    return false;
   }
 
   room.wager.amount = amount;
@@ -3179,6 +3211,13 @@ function awardRoomWagerV136IK(room, winnerId, db) {
 
 function fillRoomWithBots(room) {
   if (!room || room.status !== "waiting") return false;
+  if (getRoomWagerAmountV444(room) > BOT_WAGER_LIMIT_V444) {
+    room.wager = room.wager || {};
+    room.wager.lastError = "BOT_WAGER_LIMIT_1000_V444";
+    emitBotWagerLimitV444(room);
+    emitRoom(room);
+    return false;
+  }
   const maxPlayers = room.maxPlayers || 2;
   let added = false;
   while ((room.players || []).length < maxPlayers) {
@@ -3197,6 +3236,13 @@ function fillRoomWithBots(room) {
 function startRoomIfReady(room) {
   if (!room || room.status !== "waiting") return false;
   if ((room.players || []).length < (room.maxPlayers || 2)) return false;
+  if (isBotLimitedWagerRoomV444(room) && getRoomWagerAmountV444(room) > BOT_WAGER_LIMIT_V444) {
+    room.wager = room.wager || {};
+    room.wager.lastError = "BOT_WAGER_LIMIT_1000_V444";
+    emitBotWagerLimitV444(room);
+    emitRoom(room);
+    return false;
+  }
   clearHumanFirstBotTimer(room.id);
   if (!collectRoomWagerV136IK(room)) {
     emitRoom(room);
