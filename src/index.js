@@ -801,7 +801,9 @@ app.post("/auth/register", authRateLimitV416A, async (req, res) => {
     referredBy: "",
     referredByCode: inviteCodeV138J || "",
     points: 0,
-    coins: 10000,
+    // V438D_CANCEL_REGISTER_STARTER_10000_SERVER_ONLY:
+    // الحساب الجديد لا يأخذ 10,000 تلقائيًا؛ الكوينز تأتي من اليومية والإعلانات والمهام.
+    coins: 0,
     wins: 0,
     losses: 0,
     level: 1,
