@@ -3121,20 +3121,60 @@ function awardRoomWagerV136IK(room, winnerId, db) {
     return;
   }
 
-  const share = Math.floor(pot / receivers.length);
+  // V441_WAGER_WINNER_PROFIT_TAX_30_PERCENT:
+  // الفائز يسترجع رهانه كاملًا، ويأخذ 70% من الربح فقط، و30% من الربح تُحرق لحماية الاقتصاد.
+  const receiverIdsV441 = new Set(receivers.map((p) => String(p.id)));
+  const paidMapV441 = room.wager.paid && typeof room.wager.paid === "object" ? room.wager.paid : {};
+
+  let winnersPaidBackV441 = 0;
+  for (const [paidUserIdV441, paidAmountV441] of Object.entries(paidMapV441)) {
+    if (receiverIdsV441.has(String(paidUserIdV441))) {
+      winnersPaidBackV441 += Math.max(0, Math.floor(Number(paidAmountV441 || 0) || 0));
+    }
+  }
+
+  const grossProfitV441 = Math.max(0, pot - winnersPaidBackV441);
+  const winnerProfitPercentV441 = 70;
+  const winnerProfitPaidV441 = Math.max(0, Math.floor(grossProfitV441 * winnerProfitPercentV441 / 100));
+  const wagerEconomyTaxV441 = Math.max(0, grossProfitV441 - winnerProfitPaidV441);
+  const payoutPoolV441 = Math.max(0, Math.min(pot, winnersPaidBackV441 + winnerProfitPaidV441));
+
+  const share = Math.floor(payoutPoolV441 / receivers.length);
   let distributed = 0;
   for (let i = 0; i < receivers.length; i++) {
     const player = receivers[i];
     const user = db.users.find((u) => u.id === player.id);
     if (!user) continue;
-    const add = i === receivers.length - 1 ? (pot - distributed) : share;
+    const add = i === receivers.length - 1 ? (payoutPoolV441 - distributed) : share;
     user.coins = Number(user.coins || 0) + add;
+    user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
+    user.walletLog.unshift({
+      type: "wager_win_taxed_v441",
+      coins: add,
+      pot,
+      winnersPaidBack: winnersPaidBackV441,
+      grossProfit: grossProfitV441,
+      winnerProfitPaid: winnerProfitPaidV441,
+      economyTax: wagerEconomyTaxV441,
+      receiverCount: receivers.length,
+      at: new Date().toISOString()
+    });
+    user.walletLog = user.walletLog.slice(0, 30);
     distributed += add;
   }
 
   room.wager.paidOut = true;
   room.wager.paidOutAt = new Date().toISOString();
-  room.wager.winnerAwardText = receivers.length > 1 ? `تم توزيع جائزة الرهان ${pot} كوينز على الفريق الفائز` : `تمت إضافة جائزة الرهان ${pot} كوينز للفائز`;
+  room.wager.v441TaxApplied = true;
+  room.wager.grossPotV441 = pot;
+  room.wager.payoutPoolV441 = payoutPoolV441;
+  room.wager.winnersPaidBackV441 = winnersPaidBackV441;
+  room.wager.grossProfitV441 = grossProfitV441;
+  room.wager.winnerProfitPaidV441 = winnerProfitPaidV441;
+  room.wager.economyTaxV441 = wagerEconomyTaxV441;
+  room.wager.winnerAwardText = receivers.length > 1
+    ? `تم توزيع ${payoutPoolV441} كوينز على الفريق الفائز بعد ضريبة اقتصاد ${wagerEconomyTaxV441} كوينز`
+    : `تمت إضافة ${payoutPoolV441} كوينز للفائز بعد ضريبة اقتصاد ${wagerEconomyTaxV441} كوينز`;
 }
 
 function fillRoomWithBots(room) {
