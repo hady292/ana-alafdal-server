@@ -238,14 +238,15 @@ app.get("/app-config", (req, res) => {
       giftButtonBottom: 88,
       giftButtonBottomBilliards: 82
     },
-    // V435_UPDATE_DATA_NOTICE_CONFIG_READY: إشعار تطوير يظهر على زر تحديث البيانات من Render.
+    // V435_UPDATE_DATA_NOTICE_CONFIG_READY: إشعار تحديث يظهر على زر تحديث البيانات من Render.
+// V446_MESSAGE_CLEANUP_SERVER_READY: تنظيف نصوص التطوير الظاهرة للمستخدم.
     updateNoticeVersion: 1,
     updateNotice: {
       enabled: true,
       type: "ready",
       badgeText: "جديد",
-      title: "✨ تطوير جديد",
-      message: "تم تجهيز تحسينات جديدة: رفع زر الهدايا فوق أزرار الهاتف، وربط إعدادات التطوير بزر تحديث البيانات.",
+      title: "✨ جديد",
+      message: "تم تحديث بيانات التطبيق بنجاح.",
       showBadgeOnRefreshButton: true
     },
     features: {
