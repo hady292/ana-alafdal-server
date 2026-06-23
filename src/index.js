@@ -33,7 +33,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "ana_alafdal_dev_secret_change_later";
 
 // V416A_SECURITY_HARDENING_LOCAL_READY
-// حماية إنتاج/اختبار: لا أسرار داخل الكود، CORS مضبوط، rate limit، وهيدرات أمنية بدون تغيير قوانين اللعب.
+// حماية إنتاج: لا أسرار داخل الكود، CORS مضبوط، rate limit، وهيدرات أمنية بدون تغيير قوانين اللعب.
 const IS_PRODUCTION_V416A = String(process.env.NODE_ENV || "").toLowerCase() === "production";
 const DEFAULT_DEV_JWT_SECRET_V416A = "ana_alafdal_dev_secret_change_later";
 
@@ -118,8 +118,9 @@ function normalizeDeviceIdV138G(value) {
 }
 
 // V138J_REAL_INVITE_ALL_GAMES_DEEPLINK_READY_SAFE
+// V448A_PUBLIC_INVITE_RENDER_REDIRECT_READY: رابط الدعوة الافتراضي عبر Render ثم يحوّل إلى Google Play.
 const PLAY_STORE_URL_V138J = process.env.PLAY_STORE_URL || "https://play.google.com/store/apps/details?id=com.hadiapps.anaalafdal";
-const INVITE_BASE_URL_V138J = process.env.INVITE_BASE_URL || "https://anaalafdal.app/invite";
+const INVITE_BASE_URL_V138J = process.env.INVITE_BASE_URL || "https://ana-alafdal-server.onrender.com/invite";
 const INVITE_REFERRER_REWARD_V138J = 3000;
 const INVITE_NEW_USER_REWARD_V138J = 1000;
 
@@ -188,7 +189,7 @@ function applyReferralOnRegisterV138J(db, newUser, inviteCode, deviceId) {
 }
 
 // V136IK_REAL_WAGER_ECONOMY_SAFE
-// اقتصاد رهان حقيقي على السيرفر: خصم الرهان عند بداية المباراة، وتجميع pot، وتسليم الجائزة للفائز/الفريق.
+// اقتصاد تحدي عملات حقيقي على السيرفر: خصم تحدي العملات عند بداية المباراة، وتجميع pot، وتسليم الجائزة للفائز/الفريق.
 const WAGER_STEPS_V136IK = [1000, 5000, 10000, 20000, 40000, 80000, 160000, 320000, 640000, 1000000];
 
 function normalizeWagerV136IK(value) {
@@ -890,8 +891,8 @@ app.post("/invite/link", requireAuth, (req, res) => {
     `كود دعوتي: ${code}`,
     roomId ? `كود الغرفة: ${roomId}` : "",
     "",
-    "إذا التطبيق عندك اضغط الرابط وادخل نفس اللعبة/الغرفة.",
-    "إذا ما عندك التطبيق حمّله من Google Play:",
+    "افتح التطبيق واكتب كود الدعوة عند التسجيل.",
+    "حمّل التطبيق من Google Play:",
     inviteLink
   ].filter(Boolean).join("\n");
 
@@ -904,6 +905,23 @@ app.post("/invite/link", requireAuth, (req, res) => {
     roomId,
     message
   });
+});
+
+app.get("/invite", (req, res) => {
+  const code = normalizeInviteCodeV138J(req.query.code);
+  const game = String(req.query.game || "").trim().slice(0, 30);
+  const roomId = String(req.query.room || req.query.roomId || "").trim().slice(0, 80);
+  try {
+    const storeUrl = new URL(PLAY_STORE_URL_V138J);
+    const refParts = [];
+    if (code) refParts.push(`inviteCode=${encodeURIComponent(code)}`);
+    if (game) refParts.push(`game=${encodeURIComponent(game)}`);
+    if (roomId) refParts.push(`room=${encodeURIComponent(roomId)}`);
+    if (refParts.length) storeUrl.searchParams.set("referrer", refParts.join("&"));
+    return res.redirect(302, storeUrl.toString());
+  } catch {
+    return res.redirect(302, PLAY_STORE_URL_V138J);
+  }
 });
 
 app.get("/invite/resolve", (req, res) => {
@@ -1088,7 +1106,7 @@ app.post("/economy/claim-task", requireAuth, economyRateLimitV416A, (req, res) =
 });
 
 // V415A_VIP_MONTHLY_FOUNDATION_NO_ADS_DAILY_BONUS_GIFT_DISCOUNT_SAFE
-// أساس اشتراك VIP شهري داخل النظام للاختبار بالكويـنز فقط، والدفع الحقيقي يربط لاحقًا بـ Google Play Billing.
+// أساس VIP شهري داخل النظام بالكويـنز فقط.
 const VIP_SUBSCRIPTION_DAYS_V415A = 30;
 const VIP_MONTHLY_PRICE_COINS_V415A = 5000;
 const VIP_DAILY_BONUS_COINS_V415A = 3000;
@@ -3062,10 +3080,10 @@ function emitUserUpdateV136IK(userId) {
 }
 
 // V444_BOT_WAGER_1000_ONLY_SERVER_ONLY:
-// أي غرفة فيها بوت أو وضعها قد يضيف بوت لاحقًا لا تسمح إلا برهان 1,000 فقط.
-// الرهانات العالية تبقى للبشر فقط.
+// أي غرفة فيها بوت أو وضعها قد يضيف بوت لاحقًا لا تسمح إلا بتحدي عملات 1,000 فقط.
+// تحديات العملات العالية تبقى للبشر فقط.
 const BOT_WAGER_LIMIT_V444 = 1000;
-const BOT_WAGER_LIMIT_MESSAGE_V444 = "رهان البوت 1,000 فقط";
+const BOT_WAGER_LIMIT_MESSAGE_V444 = "تحدي عملات البوت 1,000 فقط";
 
 function isBotLimitedWagerRoomV444(room) {
   const players = Array.isArray(room?.players) ? room.players : [];
@@ -3089,7 +3107,7 @@ function emitBotWagerLimitV444(room) {
 
 // V445C_FOUR_PLAYER_FREE_WAGER_SERVER_GUARD:
 // ألعاب 4 لاعبين المحددة مجانية على السيرفر حتى لو نسخة قديمة أرسلت wager.
-// دومينو 4 شراكة + كيرم 4 + بلياردو 4 = بدون خصم وبدون جائزة رهان.
+// دومينو 4 شراكة + كيرم 4 + بلياردو 4 = بدون خصم وبدون جائزة تحدي عملات.
 function isFourPlayerFreeWagerRoomV445C(room) {
   const game = String(room?.game || "");
   const maxPlayers = Number(room?.maxPlayers || 2);
@@ -3127,7 +3145,7 @@ function collectRoomWagerV136IK(room) {
     const user = db.users.find((u) => u.id === player.id);
     const coins = Number(user?.coins || 0);
     if (!user || coins < amount) {
-      if (player.socketId) io.to(player.socketId).emit("error:message", `رصيدك لا يكفي للرهان ${amount} كوينز`);
+      if (player.socketId) io.to(player.socketId).emit("error:message", `رصيدك لا يكفي للتحدي عملات ${amount} كوينز`);
       room.wager.lastError = "INSUFFICIENT_COINS";
       return false;
     }
@@ -3178,12 +3196,12 @@ function awardRoomWagerV136IK(room, winnerId, db) {
 
   if (!receivers.length) {
     room.wager.paidOut = true;
-    room.wager.winnerAwardText = "فاز البوت · لم تُضاف جائزة الرهان لأي حساب حقيقي";
+    room.wager.winnerAwardText = "فاز البوت · لم تُضاف جائزة تحدي العملات لأي حساب حقيقي";
     return;
   }
 
   // V441_WAGER_WINNER_PROFIT_TAX_30_PERCENT:
-  // الفائز يسترجع رهانه كاملًا، ويأخذ 70% من الربح فقط، و30% من الربح تُحرق لحماية الاقتصاد.
+  // الفائز يسترجع تحديه كاملًا، ويأخذ 70% من الربح فقط، و30% من الربح تُحرق لحماية الاقتصاد.
   const receiverIdsV441 = new Set(receivers.map((p) => String(p.id)));
   const paidMapV441 = room.wager.paid && typeof room.wager.paid === "object" ? room.wager.paid : {};
 
@@ -4211,7 +4229,7 @@ socket.emit("rooms:list", roomList());
     const roomMaxPlayers = Number(maxPlayers) === 4 ? 4 : 2;
     const safeDominoMode = game === "domino" && roomMaxPlayers === 4 && String(dominoMode) === "teams" ? "teams" : "classic";
     // V445C_FOUR_PLAYER_FREE_WAGER_SERVER_GUARD:
-    // السيرفر لا يقبل رهان في دومينو 4 شراكة أو كيرم 4 أو بلياردو 4.
+    // السيرفر لا يقبل تحدي عملات في دومينو 4 شراكة أو كيرم 4 أو بلياردو 4.
     const isFourPlayerFreeCreateV445C = roomMaxPlayers === 4 && (
       (game === "domino" && safeDominoMode === "teams") ||
       game === "carrom" ||
@@ -4223,10 +4241,10 @@ socket.emit("rooms:list", roomList());
       const db = readDb();
       const creator = db.users.find((u) => u.id === socket.user.id);
       // V438C_CANCEL_STARTER_10000_KEEP_DAILY_ADS_SERVER_ONLY:
-      // إلغاء منح 10,000 عند الرهان. الرصيد الحقيقي يأتي من المكافأة اليومية والإعلانات والمهام فقط.
+      // إلغاء منح 10,000 عند تحدي العملات. الرصيد الحقيقي يأتي من المكافأة اليومية والإعلانات والمهام فقط.
       if (!creator || Number(creator.coins || 0) < safeWagerV136IK) {
-        replyCreateV221({ ok: false, error: `رصيدك لا يكفي لإنشاء رهان ${safeWagerV136IK} كوينز` });
-        return socket.emit("error:message", `رصيدك لا يكفي لإنشاء رهان ${safeWagerV136IK} كوينز`);
+        replyCreateV221({ ok: false, error: `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز` });
+        return socket.emit("error:message", `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز`);
       }
     }
 
@@ -4378,7 +4396,7 @@ socket.emit("rooms:list", roomList());
       const db = readDb();
       const user = db.users.find((u) => u.id === socket.user.id);
       if (!user || Number(user.coins || 0) < Number(room.wager.amount || 0)) {
-        return socket.emit("error:message", `رصيدك لا يكفي لدخول رهان ${room.wager.amount} كوينز`);
+        return socket.emit("error:message", `رصيدك لا يكفي لدخول تحدي عملات ${room.wager.amount} كوينز`);
       }
     }
 
