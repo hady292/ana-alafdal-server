@@ -239,15 +239,14 @@ app.get("/app-config", (req, res) => {
       giftButtonBottom: 88,
       giftButtonBottomBilliards: 82
     },
-    // V435_UPDATE_DATA_NOTICE_CONFIG_READY: إشعار تحديث يظهر على زر تحديث البيانات من Render.
-// V446_MESSAGE_CLEANUP_SERVER_READY: تنظيف نصوص التطوير الظاهرة للمستخدم.
+    // V435_UPDATE_DATA_NOTICE_CONFIG_READY: إشعار تطوير يظهر على زر تحديث البيانات من Render.
     updateNoticeVersion: 1,
     updateNotice: {
       enabled: true,
       type: "ready",
       badgeText: "جديد",
-      title: "✨ جديد",
-      message: "تم تحديث بيانات التطبيق بنجاح.",
+      title: "✨ تطوير جديد",
+      message: "تم تجهيز تحسينات جديدة: رفع زر الهدايا فوق أزرار الهاتف، وربط إعدادات التطوير بزر تحديث البيانات.",
       showBadgeOnRefreshButton: true
     },
     features: {
@@ -291,6 +290,940 @@ const io = new Server(server, {
 });
 
 const connectedUserSocketsV137O = new Map();
+
+const voiceCountryCodesV475B = [ // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+  "YE", "SA", "AE", "QA", "KW", "BH", "OM", "IQ", "SY", "JO", "PS", "LB",
+  "EG", "SD", "LY", "TN", "DZ", "MA", "MR", "SO", "DJ", "KM"
+];
+
+const voiceCountryParticipantsV475B = new Map(); // code -> Map(userId -> participant) V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+const voiceCountryMessagesV475C = new Map(); // code -> messages[] V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+const voiceCountryReportsV475D = []; // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+const voiceCountryMuteMemoryV475D = new Map(); // userId -> Set(targetUserId) V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+const voiceCountryRecentTextV475D = new Map(); // userId:code -> last text/time V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+const voiceCountryVoiceStatesV475E1 = new Map(); // code -> Map(userId -> voiceState) V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+const voiceCountrySocketIndexV475F2 = new Map(); // socketId -> { userId, code, at } V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+const VOICE_COUNTRY_MAX_MESSAGES_V475C = 100; // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+const VOICE_COUNTRY_MESSAGE_TTL_MS_V475G7D_R3 = 6 * 60 * 60 * 1000; // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+const VOICE_COUNTRY_REPORT_KEEP_MS_V475G7D_R3 = 7 * 24 * 60 * 60 * 1000; // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+const VOICE_COUNTRY_REPORT_DUPLICATE_MS_V475G7D_R3 = 24 * 60 * 60 * 1000; // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+const VOICE_COUNTRY_REPORT_SPAM_WINDOW_MS_V475G7D_R3 = 60 * 60 * 1000; // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+const VOICE_COUNTRY_REPORT_SPAM_LIMIT_V475G7D_R3 = 8; // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+const VOICE_COUNTRY_REPORT_HIDE_THRESHOLD_V475G7D_R3 = 3; // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+const VOICE_COUNTRY_REPORT_PRIORITY_THRESHOLD_V475G7D_R3 = 5; // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE_BASE
+
+const VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2 = 4; // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+const VOICE_COUNTRY_HAND_QUEUE_MAX_V476D1_R2 = 50; // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+const voiceCountrySpeakerIdsV476D1R2 = new Map(); // code -> Set(userId) // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+const voiceCountryHandQueueV476D1R2 = new Map(); // code -> userId[] // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+ // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+const VOICE_COUNTRY_REPORTS_MAX_V475D = 500; // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+const VOICE_COUNTRY_DUPLICATE_WINDOW_MS_V475D = 15000; // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+const VOICE_COUNTRY_MUTE_TTL_MS_V475F1 = 24 * 60 * 60 * 1000; // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+const VOICE_COUNTRY_REPORTS_DB_MAX_V475F1 = 1000; // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+
+function getLiveSocketIdsV475F2() { // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+  try {
+    return new Set(Array.from(io?.sockets?.sockets?.keys?.() || []));
+  } catch {
+    return new Set();
+  }
+}
+
+function emitVoiceCountryCleanupRefreshV475F2(codes) { // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+  const list = Array.from(codes || []).filter(Boolean);
+
+  for (const code of list) {
+    try { emitVoiceCountryStateV475B(code); } catch {}
+    try { emitVoiceCountryVoiceStatesV475E1(code); } catch {}
+  }
+
+  try { emitVoiceCountryListV475B(); } catch {}
+}
+
+function removeVoiceCountryPresenceForSocketV475F2(socket, reason = "cleanup") { // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+  const socketId = String(socket?.id || "");
+  const userId = String(socket?.user?.id || "");
+  const changedCodes = new Set();
+
+  if (!socketId && !userId) return 0;
+
+  try {
+    for (const [code, map] of Array.from(voiceCountryParticipantsV475B.entries())) {
+      if (!(map instanceof Map)) continue;
+
+      for (const [key, participant] of Array.from(map.entries())) {
+        const pSocketId = String(participant?.socketId || "");
+        const pUserId = String(participant?.userId || participant?.id || key || "");
+
+        if ((socketId && pSocketId === socketId) || (userId && pUserId === userId && (!pSocketId || pSocketId === socketId))) {
+          map.delete(key);
+          changedCodes.add(code);
+          if (pSocketId) voiceCountrySocketIndexV475F2.delete(pSocketId);
+        }
+      }
+
+      if (map.size === 0) voiceCountryParticipantsV475B.delete(code);
+    }
+  } catch {}
+
+  try {
+    for (const [code, map] of Array.from(voiceCountryVoiceStatesV475E1.entries())) {
+      if (!(map instanceof Map)) continue;
+
+      for (const [key, state] of Array.from(map.entries())) {
+        const sSocketId = String(state?.socketId || "");
+        const sUserId = String(state?.userId || key || "");
+
+        if ((socketId && sSocketId === socketId) || (userId && sUserId === userId && (!sSocketId || sSocketId === socketId))) {
+          map.delete(key);
+          changedCodes.add(code);
+        }
+      }
+
+      if (map.size === 0) voiceCountryVoiceStatesV475E1.delete(code);
+    }
+  } catch {}
+
+  if (socketId) voiceCountrySocketIndexV475F2.delete(socketId);
+  if (changedCodes.size > 0) emitVoiceCountryCleanupRefreshV475F2(changedCodes);
+
+  return changedCodes.size;
+}
+
+function removeVoiceCountryPresenceForUserEverywhereV475F2(userId, exceptSocketId = "") { // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+  const safeUserId = String(userId || "");
+  const safeExceptSocketId = String(exceptSocketId || "");
+  const changedCodes = new Set();
+
+  if (!safeUserId) return 0;
+
+  try {
+    for (const [code, map] of Array.from(voiceCountryParticipantsV475B.entries())) {
+      if (!(map instanceof Map)) continue;
+
+      for (const [key, participant] of Array.from(map.entries())) {
+        const pUserId = String(participant?.userId || participant?.id || key || "");
+        const pSocketId = String(participant?.socketId || "");
+
+        if (pUserId === safeUserId && (!safeExceptSocketId || pSocketId !== safeExceptSocketId)) {
+          map.delete(key);
+          changedCodes.add(code);
+          if (pSocketId) voiceCountrySocketIndexV475F2.delete(pSocketId);
+        }
+      }
+
+      if (map.size === 0) voiceCountryParticipantsV475B.delete(code);
+    }
+  } catch {}
+
+  try {
+    for (const [code, map] of Array.from(voiceCountryVoiceStatesV475E1.entries())) {
+      if (!(map instanceof Map)) continue;
+
+      for (const [key, state] of Array.from(map.entries())) {
+        const sUserId = String(state?.userId || key || "");
+        const sSocketId = String(state?.socketId || "");
+
+        if (sUserId === safeUserId && (!safeExceptSocketId || sSocketId !== safeExceptSocketId)) {
+          map.delete(key);
+          changedCodes.add(code);
+        }
+      }
+
+      if (map.size === 0) voiceCountryVoiceStatesV475E1.delete(code);
+    }
+  } catch {}
+
+  if (changedCodes.size > 0) emitVoiceCountryCleanupRefreshV475F2(changedCodes);
+  return changedCodes.size;
+}
+
+function pruneVoiceCountryGhostPresenceV475F2(reason = "interval") { // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+  const live = getLiveSocketIdsV475F2();
+  const changedCodes = new Set();
+
+  try {
+    for (const [code, map] of Array.from(voiceCountryParticipantsV475B.entries())) {
+      if (!(map instanceof Map)) continue;
+
+      for (const [key, participant] of Array.from(map.entries())) {
+        const pSocketId = String(participant?.socketId || "");
+        if (pSocketId && live.has(pSocketId)) continue;
+
+        map.delete(key);
+        changedCodes.add(code);
+        if (pSocketId) voiceCountrySocketIndexV475F2.delete(pSocketId);
+      }
+
+      if (map.size === 0) voiceCountryParticipantsV475B.delete(code);
+    }
+  } catch {}
+
+  try {
+    for (const [code, map] of Array.from(voiceCountryVoiceStatesV475E1.entries())) {
+      if (!(map instanceof Map)) continue;
+
+      const participantMap = voiceCountryParticipantsV475B.get(code) || new Map();
+
+      for (const [key, state] of Array.from(map.entries())) {
+        const sSocketId = String(state?.socketId || "");
+        const sUserId = String(state?.userId || key || "");
+        const hasLiveSocket = sSocketId && live.has(sSocketId);
+        const hasParticipant = participantMap.has(sUserId);
+
+        if (!hasLiveSocket || !hasParticipant) {
+          map.delete(key);
+          changedCodes.add(code);
+        }
+      }
+
+      if (map.size === 0) voiceCountryVoiceStatesV475E1.delete(code);
+    }
+  } catch {}
+
+  if (changedCodes.size > 0) emitVoiceCountryCleanupRefreshV475F2(changedCodes);
+  return changedCodes.size;
+}
+
+try {
+  if (!global.__voiceCountryPresenceCleanupV475F2) {
+    global.__voiceCountryPresenceCleanupV475F2 = setInterval(() => {
+      pruneVoiceCountryGhostPresenceV475F2("interval");
+    }, 25000);
+
+    if (global.__voiceCountryPresenceCleanupV475F2?.unref) {
+      global.__voiceCountryPresenceCleanupV475F2.unref();
+    }
+  }
+} catch {}
+
+function getVoiceCountryVoiceMapV475E1(code) { // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  if (!safeCode) return new Map();
+
+  if (!voiceCountryVoiceStatesV475E1.has(safeCode)) {
+    voiceCountryVoiceStatesV475E1.set(safeCode, new Map());
+  }
+
+  return voiceCountryVoiceStatesV475E1.get(safeCode);
+}
+
+function makeVoiceCountryVoiceStatesV475E1(code) { // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  const map = safeCode ? getVoiceCountryVoiceMapV475E1(safeCode) : new Map();
+
+  return Array.from(map.values()).map((s) => ({
+    userId: String(s?.userId || ""),
+    username: String(s?.username || "لاعب"),
+    muted: !!s?.muted,
+    speaking: !!s?.speaking,
+    at: Number(s?.at || Date.now())
+  }));
+}
+
+function emitVoiceCountryVoiceStatesV475E1(code) { // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  if (!safeCode) return;
+
+  try {
+    io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:voiceStates", {
+      code: safeCode,
+      states: makeVoiceCountryVoiceStatesV475E1(safeCode)
+    });
+  } catch {}
+}
+
+function setVoiceCountryVoiceStateV475E1(socket, code, patch = {}) { // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || socket?.voiceCountryCodeV475B || "");
+  if (!safeCode || !socket?.user?.id) return null;
+
+  const userId = String(socket.user.id);
+  const map = getVoiceCountryVoiceMapV475E1(safeCode);
+
+  const next = {
+    userId,
+    socketId: String(socket.id || ""), // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+    username: String(socket.user.username || "لاعب"),
+    muted: patch.muted !== undefined ? !!patch.muted : true,
+    speaking: patch.speaking !== undefined ? !!patch.speaking : false,
+    at: Date.now()
+  };
+
+  if (next.muted) next.speaking = false;
+
+  map.set(userId, next);
+  return next;
+}
+
+function clearVoiceCountryVoiceStateV475E1(socket, code) { // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || socket?.voiceCountryCodeV475B || "");
+  const userId = String(socket?.user?.id || "");
+  if (!safeCode || !userId) return;
+
+  const map = getVoiceCountryVoiceMapV475E1(safeCode);
+  map.delete(userId);
+  emitVoiceCountryVoiceStatesV475E1(safeCode);
+}
+
+function normalizeVoiceCountryCodeV475B(value) { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+  const code = String(value || "").trim().toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
+  return voiceCountryCodesV475B.includes(code) ? code : "";
+}
+
+function getVoiceCountryMapV475B(code) { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  if (!safeCode) return null;
+  if (!voiceCountryParticipantsV475B.has(safeCode)) voiceCountryParticipantsV475B.set(safeCode, new Map());
+  return voiceCountryParticipantsV475B.get(safeCode);
+}
+
+function makeVoiceCountryListV475B() { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+  return voiceCountryCodesV475B.map((code) => ({
+    code,
+    count: Number((voiceCountryParticipantsV475B.get(code) || new Map()).size || 0)
+  }));
+}
+
+
+function getVoiceCountrySpeakerSetV476D1R2(code) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return new Set();
+  if (!voiceCountrySpeakerIdsV476D1R2.has(safeCode)) voiceCountrySpeakerIdsV476D1R2.set(safeCode, new Set());
+  return voiceCountrySpeakerIdsV476D1R2.get(safeCode);
+}
+
+function getVoiceCountryHandQueueV476D1R2(code) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return [];
+  if (!voiceCountryHandQueueV476D1R2.has(safeCode)) voiceCountryHandQueueV476D1R2.set(safeCode, []);
+  return voiceCountryHandQueueV476D1R2.get(safeCode);
+}
+
+function cleanupVoiceCountrySpeakerQueueV476D1R2(code) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return;
+  const participants = getVoiceCountryMapV475B(safeCode);
+  const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+
+  Array.from(speakerSet).forEach((id) => {
+    if (!participants.has(String(id))) speakerSet.delete(String(id));
+  });
+
+  const queue = getVoiceCountryHandQueueV476D1R2(safeCode);
+  const seen = new Set();
+  const fresh = queue
+    .map((id) => String(id || ""))
+    .filter((id) => !!id && participants.has(id) && !speakerSet.has(id) && !seen.has(id) && seen.add(id))
+    .slice(0, VOICE_COUNTRY_HAND_QUEUE_MAX_V476D1_R2);
+
+  queue.splice(0, queue.length, ...fresh);
+}
+
+function removeFromVoiceCountryHandQueueV476D1R2(code, userId) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  const uid = String(userId || "");
+  if (!safeCode || !uid) return;
+  const queue = getVoiceCountryHandQueueV476D1R2(safeCode);
+  queue.splice(0, queue.length, ...queue.filter((id) => String(id) !== uid));
+}
+
+function addToVoiceCountryHandQueueV476D1R2(code, userId) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  const uid = String(userId || "");
+  if (!safeCode || !uid) return 0;
+  cleanupVoiceCountrySpeakerQueueV476D1R2(safeCode);
+
+  const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+  if (speakerSet.has(uid)) return 0;
+
+  const queue = getVoiceCountryHandQueueV476D1R2(safeCode);
+  if (!queue.includes(uid)) queue.push(uid);
+  while (queue.length > VOICE_COUNTRY_HAND_QUEUE_MAX_V476D1_R2) queue.pop();
+
+  return queue.indexOf(uid) + 1;
+}
+
+function setVoiceCountrySpeakerVoiceStateV476D1R2(code, userId, muted = true, speaking = false) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  const uid = String(userId || "");
+  if (!safeCode || !uid) return null;
+
+  const participants = getVoiceCountryMapV475B(safeCode);
+  const p = participants.get(uid) || {};
+  const voiceMap = getVoiceCountryVoiceMapV475E1(safeCode);
+  const cur = voiceMap.get(uid) || {};
+
+  const next = {
+    ...cur,
+    userId: uid,
+    username: String(p?.username || cur?.username || "لاعب").slice(0, 60),
+    avatarUri: String(p?.avatarUri || cur?.avatarUri || ""),
+    muted: !!muted,
+    speaking: !!speaking && !muted,
+    updatedAt: Date.now()
+  };
+
+  voiceMap.set(uid, next);
+  return next;
+}
+
+function emitVoiceCountryNoticeToUserV476D1R2(code, userId, message) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  const uid = String(userId || "");
+  const msg = String(message || "");
+  if (!safeCode || !uid || !msg) return;
+
+  try {
+    for (const [sid, row] of voiceCountrySocketIndexV475F2.entries()) {
+      if (row && String(row.userId || "") === uid && normalizeVoiceCountryCodeV475B(row.code || "") === safeCode) {
+        io.to(String(sid)).emit("voiceCountry:notice", { ok: true, message: msg });
+      }
+    }
+  } catch {}
+}
+
+function promoteNextVoiceCountrySpeakerV476D1R2(code) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return "";
+
+  cleanupVoiceCountrySpeakerQueueV476D1R2(safeCode);
+
+  const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+  if (speakerSet.size >= VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2) return "";
+
+  const queue = getVoiceCountryHandQueueV476D1R2(safeCode);
+  const participants = getVoiceCountryMapV475B(safeCode);
+
+  while (queue.length && speakerSet.size < VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2) {
+    const nextId = String(queue.shift() || "");
+    if (!nextId || !participants.has(nextId) || speakerSet.has(nextId)) continue;
+
+    speakerSet.add(nextId);
+    setVoiceCountrySpeakerVoiceStateV476D1R2(safeCode, nextId, true, false);
+    emitVoiceCountryNoticeToUserV476D1R2(safeCode, nextId, "تم صعودك للمنصة 🎙️ افتح المايك عندما يأتي دورك");
+    return nextId;
+  }
+
+  return "";
+}
+
+function removeVoiceCountrySpeakerAndQueueV476D1R2(code, userId, promoteNext = true) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  const uid = String(userId || "");
+  if (!safeCode || !uid) return;
+
+  const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+  speakerSet.delete(uid);
+  removeFromVoiceCountryHandQueueV476D1R2(safeCode, uid);
+  setVoiceCountrySpeakerVoiceStateV476D1R2(safeCode, uid, true, false);
+
+  if (promoteNext) promoteNextVoiceCountrySpeakerV476D1R2(safeCode);
+}
+
+function makeVoiceCountryHandQueuePublicV476D1R2(code) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return [];
+
+  cleanupVoiceCountrySpeakerQueueV476D1R2(safeCode);
+  const participants = getVoiceCountryMapV475B(safeCode);
+
+  return getVoiceCountryHandQueueV476D1R2(safeCode).slice(0, VOICE_COUNTRY_HAND_QUEUE_MAX_V476D1_R2).map((uid, index) => {
+    const p = participants.get(String(uid)) || {};
+    return {
+      userId: String(uid),
+      username: String(p?.username || "لاعب").slice(0, 60),
+      position: index + 1
+    };
+  });
+}
+
+function isVoiceCountryModeratorV476D1R2(socket) { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  try {
+    const uid = String(socket?.user?.id || "");
+    const dbUser = (db.users || []).find((u) => String(u.id) === uid) || socket?.user || {};
+    return !!(
+      dbUser?.owner ||
+      dbUser?.isOwner ||
+      dbUser?.admin ||
+      dbUser?.isAdmin ||
+      String(dbUser?.role || "").toLowerCase().includes("admin") ||
+      String(dbUser?.role || "").toLowerCase().includes("owner") ||
+      String(dbUser?.role || "").toLowerCase().includes("founder")
+    );
+  } catch {
+    return false;
+  }
+}
+
+
+function makeVoiceCountryStateV475B(code) { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  const map = safeCode ? (voiceCountryParticipantsV475B.get(safeCode) || new Map()) : new Map();
+
+  if (safeCode) cleanupVoiceCountrySpeakerQueueV476D1R2(safeCode);
+
+  const speakerSetV476D1R2 = safeCode ? getVoiceCountrySpeakerSetV476D1R2(safeCode) : new Set();
+  const handQueueIdsV476D1R2 = safeCode ? getVoiceCountryHandQueueV476D1R2(safeCode) : [];
+
+  const participants = Array.from(map.values()).slice(0, 80).map((p) => {
+    const uid = String(p?.userId || p?.id || "");
+    const isSpeaker = !!uid && speakerSetV476D1R2.has(uid);
+    const handPos = uid ? handQueueIdsV476D1R2.indexOf(uid) : -1;
+
+    return {
+      ...p,
+      voiceRoleV476D1R2: isSpeaker ? "speaker" : "listener",
+      isSpeakerV476D1R2: isSpeaker,
+      handRaisedV476D1R2: handPos >= 0,
+      handQueuePositionV476D1R2: handPos >= 0 ? handPos + 1 : 0
+    };
+  });
+
+  return {
+    code: safeCode,
+    count: Number(map.size || 0),
+    maxSpeakersV476D1R2: VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2,
+    speakerCountV476D1R2: Number(speakerSetV476D1R2.size || 0),
+    speakerIdsV476D1R2: Array.from(speakerSetV476D1R2).slice(0, VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2),
+    handQueueV476D1R2: makeVoiceCountryHandQueuePublicV476D1R2(safeCode),
+    participants
+  };
+}
+
+function getVoiceCountryMessagesV475C(code) { // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  if (!safeCode) return [];
+  if (!voiceCountryMessagesV475C.has(safeCode)) voiceCountryMessagesV475C.set(safeCode, []);
+  return voiceCountryMessagesV475C.get(safeCode);
+}
+
+function pushVoiceCountryMessageV475C(code, message) { // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  if (!safeCode || !message) return [];
+  const list = cleanupVoiceCountryMessagesV475G7DR3(safeCode); // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  list.push(message);
+  while (list.length > VOICE_COUNTRY_MAX_MESSAGES_V475C) list.shift();
+  voiceCountryMessagesV475C.set(safeCode, list);
+  return list;
+}
+
+function makeVoiceCountryMessageV475C(socket, code, text) { // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  const cleanText = String(text || "").replace(/\s+/g, " ").trim().slice(0, 180);
+  const db = readDb();
+  const dbUser = (db.users || []).find((u) => String(u.id) === String(socket?.user?.id));
+  const participant = makeVoiceCountryParticipantV475B3(socket, dbUser);
+  const hidden = !!participant.hiddenProfile || participant.canAddFriend === false;
+
+  return {
+    id: `vcm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    code: safeCode,
+    userId: hidden ? "" : String(participant.userId || participant.id || ""),
+    username: hidden ? "لاعب مخفي" : String(participant.username || participant.name || "لاعب"),
+    avatarUri: hidden ? "" : String(participant.avatarUri || participant.avatarUrl || participant.photoUrl || ""),
+    hiddenProfile: hidden,
+    canAddFriend: !hidden,
+    text: cleanText,
+    createdAt: Date.now()
+  };
+}
+
+
+function isVoiceCountryMessageExpiredV475G7DR3(message) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  const createdAt = Number(message?.createdAt || 0);
+  if (!createdAt) return false;
+  return Date.now() - createdAt > VOICE_COUNTRY_MESSAGE_TTL_MS_V475G7D_R3;
+}
+
+function cleanupVoiceCountryMessagesV475G7DR3(code) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return [];
+  const list = getVoiceCountryMessagesV475C(safeCode);
+  const fresh = list.filter((m) => !isVoiceCountryMessageExpiredV475G7DR3(m));
+  if (fresh.length !== list.length) {
+    list.splice(0, list.length, ...fresh);
+    voiceCountryMessagesV475C.set(safeCode, list);
+  }
+  while (list.length > VOICE_COUNTRY_MAX_MESSAGES_V475C) list.shift();
+  return list;
+}
+
+function getVisibleVoiceCountryMessagesV475G7DR3(code) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  return cleanupVoiceCountryMessagesV475G7DR3(code)
+    .filter((m) => !m?.hiddenByReportsV475G7DR3 && !m?.hiddenByReportsV475G7DR2 && !m?.hiddenByReportsV475G7D)
+    .slice(-VOICE_COUNTRY_MAX_MESSAGES_V475C);
+}
+
+function cleanupVoiceCountryReportsListV475G7DR3(list) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  if (!Array.isArray(list)) return [];
+  const now = Date.now();
+  const fresh = list.filter((row) => {
+    const at = Number(row?.createdAt || 0);
+    return !!at && now - at < VOICE_COUNTRY_REPORT_KEEP_MS_V475G7D_R3;
+  });
+  if (fresh.length !== list.length) list.splice(0, list.length, ...fresh);
+  return list;
+}
+
+function cleanupVoiceCountryReportsDbV475G7DR3(db) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  const list = normalizeVoiceCountryPersistListV475F1(db.voiceCountryReportsV475F1);
+  cleanupVoiceCountryReportsListV475G7DR3(list);
+  db.voiceCountryReportsV475F1 = list;
+  return list;
+}
+
+function makeVoiceCountryReportGuardV475G7DR3({ code, messageId, reporterId, reportedUserId } = {}) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  const safeMessageId = String(messageId || "");
+  const safeReporterId = String(reporterId || "");
+  const safeReportedUserId = String(reportedUserId || "");
+  const now = Date.now();
+
+  if (!safeCode || !safeMessageId || !safeReporterId) return { ok: false, message: "تعذر تسجيل البلاغ" };
+  if (safeReportedUserId && safeReportedUserId === safeReporterId) return { ok: false, message: "لا يمكنك الإبلاغ عن رسالتك" };
+
+  const db = readDb();
+  const reports = cleanupVoiceCountryReportsDbV475G7DR3(db);
+  writeDb(db);
+
+  const duplicate = reports.some((row) =>
+    String(row?.code || "") === safeCode &&
+    String(row?.messageId || "") === safeMessageId &&
+    String(row?.reporterId || "") === safeReporterId &&
+    now - Number(row?.createdAt || 0) < VOICE_COUNTRY_REPORT_DUPLICATE_MS_V475G7D_R3
+  );
+  if (duplicate) return { ok: false, message: "تم تسجيل بلاغك على هذه الرسالة مسبقًا ✅" };
+
+  const reporterRecentCount = reports.filter((row) =>
+    String(row?.reporterId || "") === safeReporterId &&
+    now - Number(row?.createdAt || 0) < VOICE_COUNTRY_REPORT_SPAM_WINDOW_MS_V475G7D_R3
+  ).length;
+  if (reporterRecentCount >= VOICE_COUNTRY_REPORT_SPAM_LIMIT_V475G7D_R3) {
+    return { ok: false, message: "تم تهدئة البلاغات مؤقتًا بسبب كثرة البلاغات السريعة" };
+  }
+
+  const sameMessageReports = reports.filter((row) =>
+    String(row?.code || "") === safeCode &&
+    String(row?.messageId || "") === safeMessageId
+  );
+
+  const uniqueReporters = new Set(sameMessageReports.map((row) => String(row?.reporterId || "")).filter(Boolean));
+  uniqueReporters.add(safeReporterId);
+
+  const uniqueCount = uniqueReporters.size;
+  const hideMessage = uniqueCount >= VOICE_COUNTRY_REPORT_HIDE_THRESHOLD_V475G7D_R3;
+  const priority = uniqueCount >= VOICE_COUNTRY_REPORT_PRIORITY_THRESHOLD_V475G7D_R3 ? "high" : "normal";
+
+  return {
+    ok: true,
+    uniqueReportersAfter: uniqueCount,
+    hideMessage,
+    priority,
+    status: hideMessage ? "hidden_pending_review" : "recorded"
+  };
+}
+
+function hideVoiceCountryMessageByReportsV475G7DR3(code, messageId, uniqueReportersAfter) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  const safeMessageId = String(messageId || "");
+  if (!safeCode || !safeMessageId) return false;
+  const list = cleanupVoiceCountryMessagesV475G7DR3(safeCode);
+  const msg = list.find((m) => String(m?.id || "") === safeMessageId);
+  if (!msg) return false;
+  msg.hiddenByReportsV475G7DR3 = true;
+  msg.hiddenByReportsV475G7D = true;
+  msg.reportStatusV475G7DR3 = "hidden_pending_review";
+  msg.reportUniqueCountV475G7DR3 = Number(uniqueReportersAfter || 0);
+  msg.hiddenAtV475G7DR3 = Date.now();
+  return true;
+}
+
+function normalizeVoiceCountryPersistListV475F1(value) { // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+  return Array.isArray(value) ? value : [];
+}
+
+function persistVoiceCountryReportV475F1(report) { // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+  try {
+    const db = readDb();
+    const list = normalizeVoiceCountryPersistListV475F1(db.voiceCountryReportsV475F1);
+    cleanupVoiceCountryReportsListV475G7DR3(list); // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+
+    list.push({
+      id: `vcr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      code: String(report?.code || ""),
+      messageId: String(report?.messageId || ""),
+      reporterId: String(report?.reporterId || ""),
+      reportedUserId: String(report?.reportedUserId || ""),
+      reportedUsername: String(report?.reportedUsername || "لاعب"),
+      textPreview: String(report?.textPreview || "").slice(0, 160),
+      reason: String(report?.reason || "message_report").slice(0, 100),
+      createdAt: Number(report?.createdAt || Date.now()),
+      status: String(report?.status || "recorded"),
+      uniqueReporters: Number(report?.uniqueReporters || 1),
+      priority: String(report?.priority || "normal"),
+      hiddenByReports: !!report?.hiddenByReports
+    });
+
+    while (list.length > VOICE_COUNTRY_REPORTS_DB_MAX_V475F1) list.shift();
+
+    db.voiceCountryReportsV475F1 = list;
+    writeDb(db);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function cleanupVoiceCountryMutesV475F1(db) { // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+  const now = Date.now();
+  const list = normalizeVoiceCountryPersistListV475F1(db.voiceCountryMutesV475F1);
+
+  db.voiceCountryMutesV475F1 = list.filter((row) => {
+    const at = Number(row?.mutedAt || 0);
+    if (!at) return false;
+    return now - at < VOICE_COUNTRY_MUTE_TTL_MS_V475F1;
+  });
+
+  return db.voiceCountryMutesV475F1;
+}
+
+function persistVoiceCountryMuteV475F1(userId, targetUserId, code, targetUsername) { // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+  const ownerId = String(userId || "");
+  const targetId = String(targetUserId || "");
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+
+  if (!ownerId || !targetId || ownerId === targetId) return false;
+
+  try {
+    const db = readDb();
+    const list = cleanupVoiceCountryMutesV475F1(db);
+    const now = Date.now();
+
+    const existing = list.find((row) =>
+      String(row?.ownerId || "") === ownerId &&
+      String(row?.targetUserId || "") === targetId
+    );
+
+    if (existing) {
+      existing.code = safeCode || String(existing.code || "");
+      existing.targetUsername = String(targetUsername || existing.targetUsername || "لاعب").slice(0, 60);
+      existing.mutedAt = now;
+      existing.expiresAt = now + VOICE_COUNTRY_MUTE_TTL_MS_V475F1;
+    } else {
+      list.push({
+        id: `vcm_${now}_${Math.random().toString(36).slice(2, 8)}`,
+        ownerId,
+        targetUserId: targetId,
+        targetUsername: String(targetUsername || "لاعب").slice(0, 60),
+        code: safeCode,
+        mutedAt: now,
+        expiresAt: now + VOICE_COUNTRY_MUTE_TTL_MS_V475F1
+      });
+    }
+
+    db.voiceCountryMutesV475F1 = list;
+    writeDb(db);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function getVoiceCountryMutesForUserV475F1(userId, code) { // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+  const ownerId = String(userId || "");
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+
+  if (!ownerId) return [];
+
+  try {
+    const db = readDb();
+    const list = cleanupVoiceCountryMutesV475F1(db);
+    writeDb(db);
+
+    return list
+      .filter((row) => {
+        const sameOwner = String(row?.ownerId || "") === ownerId;
+        const rowCode = String(row?.code || "");
+        return sameOwner && (!safeCode || !rowCode || rowCode === safeCode);
+      })
+      .map((row) => ({
+        targetUserId: String(row?.targetUserId || ""),
+        targetUsername: String(row?.targetUsername || "لاعب"),
+        code: String(row?.code || ""),
+        mutedAt: Number(row?.mutedAt || 0),
+        expiresAt: Number(row?.expiresAt || 0)
+      }))
+      .filter((row) => !!row.targetUserId);
+  } catch (err) {
+    return [];
+  }
+}
+
+function normalizeVoiceCountryModerationTextV475D(text) { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+  return String(text || "").replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function cleanVoiceCountryTextV475D(text) { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+  const clean = normalizeVoiceCountryModerationTextV475D(text);
+  const lowered = clean.toLowerCase();
+
+  const blockedWords = [
+    "fuck",
+    "shit",
+    "كلب",
+    "حمار",
+    "لعنة",
+    "قذر"
+  ];
+
+  const hit = blockedWords.find((w) => lowered.includes(String(w).toLowerCase()));
+  if (hit) {
+    return { ok: false, text: clean, reason: "blocked_word" };
+  }
+
+  return { ok: true, text: clean, reason: "" };
+}
+
+function isVoiceCountryDuplicateMessageV475D(socket, code, text) { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+  const userId = String(socket?.user?.id || socket?.id || "guest");
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  const normalized = normalizeVoiceCountryModerationTextV475D(text).toLowerCase();
+  const key = `${userId}:${safeCode}`;
+  const now = Date.now();
+  const last = voiceCountryRecentTextV475D.get(key);
+
+  voiceCountryRecentTextV475D.set(key, { text: normalized, at: now });
+
+  if (!last) return false;
+  return last.text === normalized && now - Number(last.at || 0) < VOICE_COUNTRY_DUPLICATE_WINDOW_MS_V475D;
+}
+
+function findVoiceCountryMessageV475D(code, messageId) { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  const list = getVoiceCountryMessagesV475C(safeCode);
+  return list.find((m) => String(m?.id || "") === String(messageId || "")) || null;
+}
+
+function pushVoiceCountryReportV475D(report) { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+  voiceCountryReportsV475D.push({
+    ...report,
+    createdAt: Date.now()
+  });
+
+  while (voiceCountryReportsV475D.length > VOICE_COUNTRY_REPORTS_MAX_V475D) {
+    voiceCountryReportsV475D.shift();
+  }
+
+  try { persistVoiceCountryReportV475F1({ ...report, createdAt: Date.now() }); } catch {} // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+  return voiceCountryReportsV475D.length;
+}
+
+function addVoiceCountryMuteV475D(userId, targetUserId) { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+  const owner = String(userId || "");
+  const target = String(targetUserId || "");
+
+  if (!owner || !target || owner === target) return false;
+
+  if (!voiceCountryMuteMemoryV475D.has(owner)) {
+    voiceCountryMuteMemoryV475D.set(owner, new Set());
+  }
+
+  voiceCountryMuteMemoryV475D.get(owner).add(target);
+  return true;
+}
+
+function makeVoiceCountryParticipantV475B3(socket, dbUser) { // V475B3_COUNTRY_ROOM_PLAYER_CARD_PRIVACY_SAFE
+  const hidden = !!dbUser?.voiceCountryProfileHiddenV475B3;
+  const socketId = String(socket?.id || "");
+  const realId = String(socket?.user?.id || dbUser?.id || "");
+  if (hidden) {
+    return {
+      id: `hidden_${socketId}`,
+      userId: "",
+      username: "لاعب مخفي",
+      name: "لاعب مخفي",
+      hiddenProfile: true,
+      canAddFriend: false,
+      avatarUri: "",
+      avatarUrl: "",
+      photoUrl: "",
+      socketId,
+      joinedAt: Date.now()
+    };
+  }
+
+  const avatar = String( // V475C1_COUNTRY_NAME_AVATAR_FALLBACK_SAFE
+    dbUser?.avatarUri ||
+    dbUser?.avatarUrl ||
+    dbUser?.photoUrl ||
+    dbUser?.imageUrl ||
+    dbUser?.profileImageUrl ||
+    dbUser?.profilePhotoUrl ||
+    dbUser?.picture ||
+    dbUser?.avatar ||
+    socket?.user?.avatarUri ||
+    socket?.user?.avatarUrl ||
+    socket?.user?.photoUrl ||
+    socket?.user?.imageUrl ||
+    socket?.user?.profileImageUrl ||
+    socket?.user?.profilePhotoUrl ||
+    socket?.user?.picture ||
+    socket?.user?.avatar ||
+    ""
+  );
+
+  const username = String( // V475C1_COUNTRY_NAME_AVATAR_FALLBACK_SAFE
+    dbUser?.displayName ||
+    dbUser?.name ||
+    dbUser?.username ||
+    socket?.user?.displayName ||
+    socket?.user?.name ||
+    socket?.user?.username ||
+    "لاعب"
+  );
+  return {
+    id: realId,
+    userId: realId,
+    username,
+    name: username,
+    avatarUri: avatar,
+    avatarUrl: avatar,
+    photoUrl: avatar,
+    countryCode: String(dbUser?.countryCode || "YE"),
+    friendsCount: Array.isArray(dbUser?.friends) ? dbUser.friends.length : 0,
+    hiddenProfile: false,
+    canAddFriend: true,
+    socketId,
+    joinedAt: Date.now()
+  };
+}
+
+function emitVoiceCountryListV475B() { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+  io.emit("voiceCountry:list", makeVoiceCountryListV475B());
+}
+
+function emitVoiceCountryStateV475B(code) { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+  const safeCode = normalizeVoiceCountryCodeV475B(code);
+  if (!safeCode) return;
+  io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:state", makeVoiceCountryStateV475B(safeCode));
+}
+
+function leaveVoiceCountryRoomV475B(socket, reason) { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+  const prevCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+  if (!prevCode) return;
+  const map = getVoiceCountryMapV475B(prevCode);
+  const userId = String(socket?.user?.id || "");
+  if (map && userId) {
+    const current = map.get(userId);
+    if (!current || String(current.socketId || "") === String(socket.id || "")) map.delete(userId);
+  }
+  removeVoiceCountrySpeakerAndQueueV476D1R2(prevCode, socket.user?.id, true); // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+  try { socket.leave(`voiceCountry:${prevCode}`); } catch {}
+  socket.voiceCountryCodeV475B = "";
+  emitVoiceCountryStateV475B(prevCode);
+  emitVoiceCountryListV475B();
+}
 
 const socketCooldownsV416A = new Map();
 
@@ -533,9 +1466,7 @@ function publicUser(user) {
     level: user.level || 1,
     email: user.email || "",
     inviteCode: user.inviteCode || "",
-    // V439_PUBLIC_USER_HIDE_FRIENDS_COUNT:
-    // لا تكشف عدد أصدقاء اللاعب ضمن البيانات العامة.
-    friendsCount: 0,
+    friendsCount: Array.isArray(user.friends) ? user.friends.length : 0,
     avatarUri: user.avatarUri || "",
     countryCode: user.countryCode || "YE",
     vipLevel: Number(user.vipLevel || 0),
@@ -544,6 +1475,13 @@ function publicUser(user) {
     vipSubscriptionStatus: user.vipSubscriptionStatus || "",
     vipPlan: user.vipPlan || "",
     vipDailyBonusDate: user.vipDailyBonusDate || "",
+    vipProductId: user.vipProductId || "",
+    vipPlanTitle: getVipPlanTitleV454(user),
+    vipAdFree: isVipSubscriptionActiveV415A(user),
+    vipGiftAccess: getVipGiftAccessV454(user),
+    vipGiftUsageV454: sanitizeGiftUsageV454(user.vipGiftUsageV454),
+    giftStats: user.giftStats || { sent: 0, received: 0 },
+    voiceCountryProfileHiddenV475B3: !!user.voiceCountryProfileHiddenV475B3, // V475B3_COUNTRY_ROOM_PLAYER_CARD_PRIVACY_SAFE
     walletLog: Array.isArray(user.walletLog) ? user.walletLog.slice(0, 30) : [],
     tasks: user.tasks || {}
   };
@@ -805,9 +1743,7 @@ app.post("/auth/register", authRateLimitV416A, async (req, res) => {
     referredBy: "",
     referredByCode: inviteCodeV138J || "",
     points: 0,
-    // V438D_CANCEL_REGISTER_STARTER_10000_SERVER_ONLY:
-    // الحساب الجديد لا يأخذ 10,000 تلقائيًا؛ الكوينز تأتي من اليومية والإعلانات والمهام.
-    coins: 0,
+    coins: 10000,
     wins: 0,
     losses: 0,
     level: 1,
@@ -1105,12 +2041,54 @@ app.post("/economy/claim-task", requireAuth, economyRateLimitV416A, (req, res) =
   });
 });
 
-// V415A_VIP_MONTHLY_FOUNDATION_NO_ADS_DAILY_BONUS_GIFT_DISCOUNT_SAFE
-// أساس VIP شهري داخل النظام بالكويـنز فقط.
+// V454_SUBSCRIPTION_GIFTS_ONLY_NO_COIN_PRICES
+// الخطط الشهرية الجديدة: 19.99 هدايا كاملة، 9.99 هدية واحدة من كل نوع، 3.99 بدون إعلانات فقط.
 const VIP_SUBSCRIPTION_DAYS_V415A = 30;
-const VIP_MONTHLY_PRICE_COINS_V415A = 5000;
-const VIP_DAILY_BONUS_COINS_V415A = 3000;
-const VIP_GIFT_DISCOUNT_PERCENT_V415A = 20;
+const VIP_MONTHLY_PRICE_COINS_V415A = 0; // V454: لم يعد VIP يُشترى بالكويـنز.
+const VIP_DAILY_BONUS_COINS_V415A = 0; // V454: لا توجد مكافأة كوينز ضمن خطط الاشتراك الجديدة.
+const VIP_GIFT_DISCOUNT_PERCENT_V415A = 0; // V454: لا يوجد خصم هدايا؛ الهدايا بالاشتراك فقط.
+
+const VIP_PLANS_V454 = {
+  no_ads_399: {
+    planId: "no_ads_399",
+    productId: "ana_vip_no_ads_monthly_399",
+    priceUsd: "3.99",
+    level: 1,
+    title: "بدون إعلانات",
+    noAds: true,
+    giftAccess: "none"
+  },
+  gifts_one_each_999: {
+    planId: "gifts_one_each_999",
+    productId: "ana_vip_gifts_one_each_monthly_999",
+    priceUsd: "9.99",
+    level: 2,
+    title: "بدون إعلانات + هدية واحدة من كل نوع",
+    noAds: true,
+    giftAccess: "one_each"
+  },
+  gifts_unlimited_1999: {
+    planId: "gifts_unlimited_1999",
+    productId: "ana_vip_gifts_unlimited_monthly_1999",
+    priceUsd: "19.99",
+    level: 3,
+    title: "بدون إعلانات + جميع الهدايا",
+    noAds: true,
+    giftAccess: "unlimited"
+  }
+};
+
+const VIP_GIFT_TYPES_V454 = {
+  royal_lion_8s: "الأسد الملكي",
+  legend_lion_15s: "الأسد الأسطوري",
+  super_car_15s: "السيارة الأسطورية",
+  royal_heart_5s: "القلب الملكي", // V474G_SERVER_READY_ROYAL_HEART_SAFE
+  royal_rose_5s: "الوردة الملكية", // V474G_SERVER_READY_ROYAL_ROSE_SAFE
+  royal_fireworks_15s: "الألعاب النارية الملكية",
+  royal_wolf_15s: "الذئب الأسطوري",
+  royal_horse_15s: "الخيل الملكي",
+  royal_crown_15s: "التاج الملكي"
+};
 
 function isVipSubscriptionActiveV415A(user) {
   const status = String(user?.vipSubscriptionStatus || "").toLowerCase();
@@ -1124,18 +2102,85 @@ function addVipDaysV415A(baseIso, days) {
   return new Date(safeBase + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+function normalizeVipPlanIdV454(value) {
+  const raw = String(value || "").trim();
+  if (raw === "1" || raw === "no_ads" || raw === "no_ads_399" || raw === "ana_vip_no_ads_monthly_399") return "no_ads_399";
+  if (raw === "2" || raw === "gifts_one_each" || raw === "gifts_one_each_999" || raw === "ana_vip_gifts_one_each_monthly_999") return "gifts_one_each_999";
+  if (raw === "3" || raw === "gifts_unlimited" || raw === "gifts_unlimited_1999" || raw === "ana_vip_gifts_unlimited_monthly_1999") return "gifts_unlimited_1999";
+  return raw;
+}
+
+function getVipPlanV454(user) {
+  if (!isVipSubscriptionActiveV415A(user)) return null;
+  const planId = normalizeVipPlanIdV454(user?.vipPlan || user?.vipProductId || user?.vipLevel);
+  return VIP_PLANS_V454[planId] || null;
+}
+
+function getVipPlanTitleV454(user) {
+  const plan = getVipPlanV454(user);
+  return plan ? plan.title : "";
+}
+
+function getVipGiftAccessV454(user) {
+  const plan = getVipPlanV454(user);
+  return plan ? plan.giftAccess : "none";
+}
+
+function sanitizeGiftUsageV454(value) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const out = {};
+  Object.keys(VIP_GIFT_TYPES_V454).forEach((giftType) => {
+    const n = Math.max(0, Math.floor(Number(input[giftType] || 0) || 0));
+    if (n > 0) out[giftType] = n;
+  });
+  return out;
+}
+
+function canSendSubscriptionGiftV454(user, giftType) {
+  const plan = getVipPlanV454(user);
+  if (!plan || plan.giftAccess === "none") {
+    return { ok: false, code: "VIP_GIFT_PLAN_REQUIRED", message: "🎁 إرسال الهدايا يحتاج اشتراك الهدايا: فعّل خطة 9.99 أو 19.99." }; // V475G7C3_GIFT_SUBSCRIPTION_NOTICE_CLEAR_SAFE
+  }
+  if (!VIP_GIFT_TYPES_V454[giftType]) {
+    return { ok: false, code: "GIFT_NOT_READY", message: "هذه الهدية غير متاحة." };
+  }
+  if (plan.giftAccess === "unlimited") {
+    return { ok: true, plan, usageAfter: null };
+  }
+  if (plan.giftAccess === "one_each") {
+    const usage = sanitizeGiftUsageV454(user.vipGiftUsageV454);
+    const used = Math.max(0, Math.floor(Number(usage[giftType] || 0) || 0));
+    if (used >= 1) {
+      return { ok: false, code: "VIP_GIFT_TYPE_ALREADY_USED", message: "خطة 9.99 تسمح بهدية واحدة من كل نوع خلال مدة الاشتراك." };
+    }
+    usage[giftType] = used + 1;
+    return { ok: true, plan, usageAfter: usage };
+  }
+  return { ok: false, code: "VIP_GIFT_PLAN_REQUIRED", message: "خطة الاشتراك الحالية لا تسمح بإرسال الهدايا." };
+}
+
 app.post("/vip/activate", requireAuth, economyRateLimitV416A, (req, res) => {
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
 
-  const level = 1;
-  const price = VIP_MONTHLY_PRICE_COINS_V415A;
+  const requestedPlanId = normalizeVipPlanIdV454(req.body?.planId || req.body?.plan || req.body?.productId || req.body?.level);
+  const plan = VIP_PLANS_V454[requestedPlanId];
+  if (!plan) {
+    return res.status(400).json({
+      error: "INVALID_VIP_PLAN",
+      message: "خطة الاشتراك غير صحيحة.",
+      plans: Object.values(VIP_PLANS_V454),
+      user: publicUser(user)
+    });
+  }
 
-  if (Number(user.coins || 0) < price) {
+  const allowInternalActivationV454 = String(process.env.ALLOW_INTERNAL_VIP_ACTIVATE_V454 || "").toLowerCase() === "true";
+  if (!allowInternalActivationV454) {
     return res.status(402).json({
-      error: "NOT_ENOUGH_COINS",
-      message: `رصيدك لا يكفي لتفعيل VIP الشهري. تحتاج ${price} كوينز.`,
+      error: "GOOGLE_PLAY_BILLING_REQUIRED",
+      message: "هذه الخطط شهرية بالدولار وتحتاج ربط Google Play Billing قبل التفعيل الحقيقي. لم يتم خصم كوينز.",
+      plan,
       user: publicUser(user)
     });
   }
@@ -1143,18 +2188,20 @@ app.post("/vip/activate", requireAuth, economyRateLimitV416A, (req, res) => {
   const wasActive = isVipSubscriptionActiveV415A(user);
   const nextExpiresAt = addVipDaysV415A(user.vipExpiresAt, VIP_SUBSCRIPTION_DAYS_V415A);
 
-  user.coins = Number(user.coins || 0) - price;
-  user.vipLevel = Math.max(Number(user.vipLevel || 0), level);
+  user.vipLevel = Math.max(Number(user.vipLevel || 0), Number(plan.level || 1));
   user.vipActivatedAt = user.vipActivatedAt || new Date().toISOString();
   user.vipSubscriptionStatus = "active";
-  user.vipPlan = "monthly_vip_v415a";
+  user.vipPlan = plan.planId;
+  user.vipProductId = plan.productId;
   user.vipExpiresAt = nextExpiresAt;
+  user.vipGiftUsageV454 = {};
   user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
   user.walletLog.unshift({
-    type: "vip_subscription",
-    plan: user.vipPlan,
-    level,
-    coins: -price,
+    type: "vip_subscription_internal_test_v454",
+    plan: plan.planId,
+    productId: plan.productId,
+    priceUsd: plan.priceUsd,
+    coins: 0,
     days: VIP_SUBSCRIPTION_DAYS_V415A,
     expiresAt: nextExpiresAt,
     at: new Date().toISOString()
@@ -1166,12 +2213,11 @@ app.post("/vip/activate", requireAuth, economyRateLimitV416A, (req, res) => {
 
   res.json({
     ok: true,
-    type: "vip_subscription",
-    level,
-    price,
+    type: "vip_subscription_v454_internal_test",
+    plan,
     days: VIP_SUBSCRIPTION_DAYS_V415A,
     expiresAt: nextExpiresAt,
-    message: wasActive ? "تم تمديد VIP الشهري 30 يوم ✅" : "تم تفعيل VIP الشهري 30 يوم ✅",
+    message: wasActive ? "تم تمديد خطة الاشتراك 30 يوم ✅" : "تم تفعيل خطة الاشتراك 30 يوم ✅",
     user: publicUser(user)
   });
 });
@@ -1180,44 +2226,10 @@ app.post("/vip/claim-daily-bonus", requireAuth, economyRateLimitV416A, (req, res
   const db = readDb();
   const user = db.users.find((u) => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
-
-  if (!isVipSubscriptionActiveV415A(user)) {
-    return res.status(403).json({
-      error: "VIP_SUBSCRIPTION_REQUIRED",
-      message: "مكافأة VIP تحتاج اشتراك VIP شهري فعال.",
-      user: publicUser(user)
-    });
-  }
-
-  const today = todayKeyV138REAL();
-  user.economy = user.economy || {};
-  const lastClaim = String(user.vipDailyBonusDate || user.economy.vipDailyBonusDate || "");
-  if (lastClaim === today) {
-    return res.status(409).json({
-      error: "VIP_DAILY_ALREADY_CLAIMED",
-      message: "استلمت مكافأة VIP اليوم بالفعل.",
-      user: publicUser(user),
-      economy: user.economy
-    });
-  }
-
-  user.vipDailyBonusDate = today;
-  user.economy.vipDailyBonusDate = today;
-  user.economy.lastVipDailyBonusAt = new Date().toISOString();
-  user.coins = Number(user.coins || 0) + VIP_DAILY_BONUS_COINS_V415A;
-  user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
-  user.walletLog.unshift({ type: "vip_daily_bonus", coins: VIP_DAILY_BONUS_COINS_V415A, at: new Date().toISOString() });
-  user.walletLog = user.walletLog.slice(0, 30);
-
-  writeDb(db);
-  emitUserUpdateV136IK(user.id);
-
-  res.json({
-    ok: true,
-    type: "vip_daily_bonus",
-    addedCoins: VIP_DAILY_BONUS_COINS_V415A,
-    user: publicUser(user),
-    economy: user.economy
+  return res.status(410).json({
+    error: "VIP_DAILY_BONUS_DISABLED_V454",
+    message: "خطط V454 الجديدة لا تحتوي على مكافأة كوينز يومية. المزايا الآن: بدون إعلانات والهدايا حسب الخطة.",
+    user: publicUser(user)
   });
 });
 
@@ -1977,6 +2989,7 @@ app.patch("/me/profile", requireAuth, (req, res) => {
 
   user.avatarUri = avatarUri;
   user.countryCode = /^[A-Z]{2}$/.test(countryCode) ? countryCode : "YE";
+  user.voiceCountryProfileHiddenV475B3 = !!req.body.voiceCountryProfileHiddenV475B3; // V475B3_COUNTRY_ROOM_PLAYER_CARD_PRIVACY_SAFE
   writeDb(db);
 
   // حدث اللاعبين الموجودين في الغرف حتى تظهر الصورة/العلم فورًا
@@ -2025,9 +3038,7 @@ app.get("/users/:id/profile", requireAuth, (req, res) => {
       wins: target.wins || 0,
       losses: target.losses || 0,
       level: target.level || 1,
-      // V439_PROFILE_HIDE_FRIENDS_COUNT:
-      // لا تكشف عدد أصدقاء اللاعب في صفحة بروفايل الآخرين.
-      friendsCount: 0,
+      friendsCount: Array.isArray(target.friends) ? target.friends.length : 0,
       avatarUri: target.avatarUri || "",
       countryCode: target.countryCode || "YE"
     }
@@ -2499,9 +3510,7 @@ function publicRoom(room, userId) {
         coins: dbUser?.coins || 0,
         wins: dbUser?.wins || 0,
         losses: dbUser?.losses || 0,
-        // V439_ROOM_PLAYER_HIDE_FRIENDS_COUNT:
-        // كرت الخصم لا يعرف عدد أصدقاء اللاعب.
-        friendsCount: 0
+        friendsCount: Array.isArray(dbUser?.friends) ? dbUser.friends.length : 0
       };
     }),
     chat: room.chat.slice(-50),
@@ -3079,61 +4088,7 @@ function emitUserUpdateV136IK(userId) {
   }
 }
 
-// V444_BOT_WAGER_1000_ONLY_SERVER_ONLY:
-// أي غرفة فيها بوت أو وضعها قد يضيف بوت لاحقًا لا تسمح إلا بتحدي عملات 1,000 فقط.
-// تحديات العملات العالية تبقى للبشر فقط.
-const BOT_WAGER_LIMIT_V444 = 1000;
-const BOT_WAGER_LIMIT_MESSAGE_V444 = "تحدي عملات البوت 1,000 فقط";
-
-function isBotLimitedWagerRoomV444(room) {
-  const players = Array.isArray(room?.players) ? room.players : [];
-  const hasBot = players.some((p) => isBotIdV136IK(p?.id));
-  const mode = String(room?.matchMode || "live").toLowerCase();
-  return hasBot || mode === "bot" || mode === "quick";
-}
-
-function getRoomWagerAmountV444(room) {
-  return Math.max(0, Math.floor(Number(room?.wager?.amount || room?.wagerAmount || 0) || 0));
-}
-
-function emitBotWagerLimitV444(room) {
-  try {
-    for (const player of (room?.players || [])) {
-      if (!player || isBotIdV136IK(player.id)) continue;
-      if (player.socketId) io.to(player.socketId).emit("error:message", BOT_WAGER_LIMIT_MESSAGE_V444);
-    }
-  } catch {}
-}
-
-// V445C_FOUR_PLAYER_FREE_WAGER_SERVER_GUARD:
-// ألعاب 4 لاعبين المحددة مجانية على السيرفر حتى لو نسخة قديمة أرسلت wager.
-// دومينو 4 شراكة + كيرم 4 + بلياردو 4 = بدون خصم وبدون جائزة تحدي عملات.
-function isFourPlayerFreeWagerRoomV445C(room) {
-  const game = String(room?.game || "");
-  const maxPlayers = Number(room?.maxPlayers || 2);
-  const dominoMode = String(room?.dominoMode || "classic");
-  return maxPlayers === 4 && (
-    (game === "domino" && dominoMode === "teams") ||
-    game === "carrom" ||
-    game === "billiards"
-  );
-}
-
-function forceFourPlayerFreeWagerV445C(room) {
-  if (!isFourPlayerFreeWagerRoomV445C(room)) return false;
-  room.wager = room.wager || {};
-  if (!room.wager.locked) {
-    room.wager.amount = 0;
-    room.wager.pot = 0;
-    room.wager.paid = {};
-    room.wager.paidOut = false;
-  }
-  room.wager.fourPlayerFreeV445C = true;
-  return true;
-}
-
 function collectRoomWagerV136IK(room) {
-  if (forceFourPlayerFreeWagerV445C(room)) return true;
   if (!room || !room.wager || !(room.wager.amount > 0)) return true;
   if (room.wager.locked) return true;
 
@@ -3149,12 +4104,6 @@ function collectRoomWagerV136IK(room) {
       room.wager.lastError = "INSUFFICIENT_COINS";
       return false;
     }
-  }
-
-  if (isBotLimitedWagerRoomV444(room) && amount > BOT_WAGER_LIMIT_V444) {
-    room.wager.lastError = "BOT_WAGER_LIMIT_1000_V444";
-    emitBotWagerLimitV444(room);
-    return false;
   }
 
   room.wager.amount = amount;
@@ -3200,71 +4149,24 @@ function awardRoomWagerV136IK(room, winnerId, db) {
     return;
   }
 
-  // V441_WAGER_WINNER_PROFIT_TAX_30_PERCENT:
-  // الفائز يسترجع تحديه كاملًا، ويأخذ 70% من الربح فقط، و30% من الربح تُحرق لحماية الاقتصاد.
-  const receiverIdsV441 = new Set(receivers.map((p) => String(p.id)));
-  const paidMapV441 = room.wager.paid && typeof room.wager.paid === "object" ? room.wager.paid : {};
-
-  let winnersPaidBackV441 = 0;
-  for (const [paidUserIdV441, paidAmountV441] of Object.entries(paidMapV441)) {
-    if (receiverIdsV441.has(String(paidUserIdV441))) {
-      winnersPaidBackV441 += Math.max(0, Math.floor(Number(paidAmountV441 || 0) || 0));
-    }
-  }
-
-  const grossProfitV441 = Math.max(0, pot - winnersPaidBackV441);
-  const winnerProfitPercentV441 = 70;
-  const winnerProfitPaidV441 = Math.max(0, Math.floor(grossProfitV441 * winnerProfitPercentV441 / 100));
-  const wagerEconomyTaxV441 = Math.max(0, grossProfitV441 - winnerProfitPaidV441);
-  const payoutPoolV441 = Math.max(0, Math.min(pot, winnersPaidBackV441 + winnerProfitPaidV441));
-
-  const share = Math.floor(payoutPoolV441 / receivers.length);
+  const share = Math.floor(pot / receivers.length);
   let distributed = 0;
   for (let i = 0; i < receivers.length; i++) {
     const player = receivers[i];
     const user = db.users.find((u) => u.id === player.id);
     if (!user) continue;
-    const add = i === receivers.length - 1 ? (payoutPoolV441 - distributed) : share;
+    const add = i === receivers.length - 1 ? (pot - distributed) : share;
     user.coins = Number(user.coins || 0) + add;
-    user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
-    user.walletLog.unshift({
-      type: "wager_win_taxed_v441",
-      coins: add,
-      pot,
-      winnersPaidBack: winnersPaidBackV441,
-      grossProfit: grossProfitV441,
-      winnerProfitPaid: winnerProfitPaidV441,
-      economyTax: wagerEconomyTaxV441,
-      receiverCount: receivers.length,
-      at: new Date().toISOString()
-    });
-    user.walletLog = user.walletLog.slice(0, 30);
     distributed += add;
   }
 
   room.wager.paidOut = true;
   room.wager.paidOutAt = new Date().toISOString();
-  room.wager.v441TaxApplied = true;
-  room.wager.grossPotV441 = pot;
-  room.wager.payoutPoolV441 = payoutPoolV441;
-  room.wager.winnersPaidBackV441 = winnersPaidBackV441;
-  room.wager.grossProfitV441 = grossProfitV441;
-  room.wager.winnerProfitPaidV441 = winnerProfitPaidV441;
-  room.wager.economyTaxV441 = wagerEconomyTaxV441;
-  room.wager.winnerAwardText = receivers.length > 1
-    ? `تم توزيع ${payoutPoolV441} كوينز على الفريق الفائز بعد ضريبة اقتصاد ${wagerEconomyTaxV441} كوينز`
-    : `تمت إضافة ${payoutPoolV441} كوينز للفائز بعد ضريبة اقتصاد ${wagerEconomyTaxV441} كوينز`;
+  room.wager.winnerAwardText = receivers.length > 1 ? `تم توزيع جائزة تحدي العملات ${pot} كوينز على الفريق الفائز` : `تمت إضافة جائزة تحدي العملات ${pot} كوينز للفائز`;
 }
 
 function fillRoomWithBots(room) {
   if (!room || room.status !== "waiting") return false;
-  if (getRoomWagerAmountV444(room) > BOT_WAGER_LIMIT_V444) {
-    room.wager = room.wager || {};
-    room.wager.lastError = "BOT_WAGER_LIMIT_1000_V444";
-    emitBotWagerLimitV444(room);
-    emitRoom(room);
-    return false;
-  }
   const maxPlayers = room.maxPlayers || 2;
   let added = false;
   while ((room.players || []).length < maxPlayers) {
@@ -3283,13 +4185,6 @@ function fillRoomWithBots(room) {
 function startRoomIfReady(room) {
   if (!room || room.status !== "waiting") return false;
   if ((room.players || []).length < (room.maxPlayers || 2)) return false;
-  if (isBotLimitedWagerRoomV444(room) && getRoomWagerAmountV444(room) > BOT_WAGER_LIMIT_V444) {
-    room.wager = room.wager || {};
-    room.wager.lastError = "BOT_WAGER_LIMIT_1000_V444";
-    emitBotWagerLimitV444(room);
-    emitRoom(room);
-    return false;
-  }
   clearHumanFirstBotTimer(room.id);
   if (!collectRoomWagerV136IK(room)) {
     emitRoom(room);
@@ -4142,40 +5037,223 @@ function betaRejectV187(socket, code, msg) {
   socket.emit("beta:guard", { ok: false, code });
 }
 
+
+function addFriendPresenceIdV475D1R2(set, value, selfId) { // V475D1_R2_FRIEND_PRESENCE_ONLY_REAL_FRIENDS_SAFE
+  if (value == null) return;
+
+  if (typeof value === "string" || typeof value === "number") {
+    const id = String(value || "");
+    if (id && id !== String(selfId || "")) set.add(id);
+    return;
+  }
+
+  if (typeof value !== "object") return;
+
+  const candidates = [
+    value.id,
+    value.userId,
+    value.friendId,
+    value.targetUserId,
+    value.otherUserId,
+    value.toUserId,
+    value.fromUserId,
+    value.friend && value.friend.id,
+    value.user && value.user.id
+  ];
+
+  for (const c of candidates) {
+    const id = String(c || "");
+    if (id && id !== String(selfId || "")) set.add(id);
+  }
+}
+
+function relationLooksAcceptedV475D1R2(row) { // V475D1_R2_FRIEND_PRESENCE_ONLY_REAL_FRIENDS_SAFE
+  const status = String(row?.status || row?.state || row?.type || "").toLowerCase();
+  return row?.accepted === true || row?.isFriend === true || ["accepted", "friend", "friends", "approved"].includes(status);
+}
+
+function rowHasUserV475D1R2(row, userId) { // V475D1_R2_FRIEND_PRESENCE_ONLY_REAL_FRIENDS_SAFE
+  const id = String(userId || "");
+  if (!id || !row || typeof row !== "object") return false;
+
+  const candidates = [
+    row.userId,
+    row.friendId,
+    row.targetUserId,
+    row.otherUserId,
+    row.toUserId,
+    row.fromUserId,
+    row.requesterId,
+    row.receiverId,
+    row.senderId,
+    row.recipientId,
+    row.user && row.user.id,
+    row.friend && row.friend.id
+  ].map((x) => String(x || ""));
+
+  return candidates.includes(id);
+}
+
+function getFriendIdsForPresenceV475D1R2(userId) { // V475D1_R2_FRIEND_PRESENCE_ONLY_REAL_FRIENDS_SAFE
+  const selfId = String(userId || "");
+  const ids = new Set();
+
+  if (!selfId) return ids;
+
+  try {
+    const db = readDb();
+    const users = Array.isArray(db.users) ? db.users : [];
+    const me = users.find((u) => String(u?.id || "") === selfId);
+
+    if (me && Array.isArray(me.friends)) {
+      for (const f of me.friends) addFriendPresenceIdV475D1R2(ids, f, selfId);
+    }
+
+    for (const other of users) {
+      const otherId = String(other?.id || "");
+      if (!otherId || otherId === selfId) continue;
+
+      const list = Array.isArray(other?.friends) ? other.friends : [];
+      const hasMe = list.some((f) => {
+        if (typeof f === "string" || typeof f === "number") return String(f) === selfId;
+        if (!f || typeof f !== "object") return false;
+
+        const candidates = [
+          f.id,
+          f.userId,
+          f.friendId,
+          f.targetUserId,
+          f.otherUserId,
+          f.toUserId,
+          f.fromUserId,
+          f.friend && f.friend.id,
+          f.user && f.user.id
+        ].map((x) => String(x || ""));
+
+        return candidates.includes(selfId);
+      });
+
+      if (hasMe) ids.add(otherId);
+    }
+
+    const possiblePools = [db.friendships, db.friends, db.friendRequests, db.friend_requests];
+
+    for (const pool of possiblePools) {
+      if (!Array.isArray(pool)) continue;
+
+      for (const row of pool) {
+        if (!relationLooksAcceptedV475D1R2(row)) continue;
+        if (!rowHasUserV475D1R2(row, selfId)) continue;
+
+        const candidates = [
+          row.userId,
+          row.friendId,
+          row.targetUserId,
+          row.otherUserId,
+          row.toUserId,
+          row.fromUserId,
+          row.requesterId,
+          row.receiverId,
+          row.senderId,
+          row.recipientId
+        ];
+
+        for (const c of candidates) {
+          const id = String(c || "");
+          if (id && id !== selfId) ids.add(id);
+        }
+      }
+    }
+  } catch (err) {
+    // لو حدث خطأ، الأفضل عدم إرسال أي تنبيه بدل تنبيه خاطئ.
+  }
+
+  return ids;
+}
+
+function emitFriendPresenceOnlyRealFriendsV475D1R2(userId, payload) { // V475D1_R2_FRIEND_PRESENCE_ONLY_REAL_FRIENDS_SAFE
+  const ids = getFriendIdsForPresenceV475D1R2(userId);
+
+  for (const friendId of ids) {
+    const socketId = connectedUserSocketsV137O.get(String(friendId));
+    if (!socketId) continue;
+
+    try {
+      io.to(socketId).emit("friend:presence", payload);
+    } catch {}
+  }
+}
+
+// V476J_R6_COUNTRY_COUNCIL_POLISH_SERVER_SAFE: moderator quiet mode + action log
+const voiceCountryModerationSettingsV476J = new Map();
+const voiceCountryModerationLogsV476J = new Map();
+
+function getVoiceCountryModerationSettingsV476J(code) {
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return { handLocked: false, chatLocked: false, updatedAt: 0 };
+  if (!voiceCountryModerationSettingsV476J.has(safeCode)) {
+    voiceCountryModerationSettingsV476J.set(safeCode, { handLocked: false, chatLocked: false, updatedAt: Date.now() });
+  }
+  return voiceCountryModerationSettingsV476J.get(safeCode);
+}
+
+function getVoiceCountryModerationLogsV476J(code) {
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return [];
+  return voiceCountryModerationLogsV476J.get(safeCode) || [];
+}
+
+function emitVoiceCountryModerationStateV476J(code, toSocket) {
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return;
+  const payload = {
+    code: safeCode,
+    settings: getVoiceCountryModerationSettingsV476J(safeCode),
+    logs: getVoiceCountryModerationLogsV476J(safeCode).slice(-12)
+  };
+  if (toSocket) {
+    try { toSocket.emit("voiceCountry:moderationState", payload); } catch {}
+  } else {
+    try { io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:moderationState", payload); } catch {}
+  }
+}
+
+function pushVoiceCountryModerationLogV476J(code, action, actorSocket, targetUserId, message) {
+  const safeCode = normalizeVoiceCountryCodeV475B(code || "");
+  if (!safeCode) return null;
+  const map = getVoiceCountryMapV475B(safeCode);
+  const target = map?.get(String(targetUserId || "")) || {};
+  const item = {
+    id: `mod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    code: safeCode,
+    action: String(action || "action").slice(0, 50),
+    actorId: String(actorSocket?.user?.id || ""),
+    actorName: String(actorSocket?.user?.username || actorSocket?.user?.name || "المشرف").slice(0, 60),
+    targetUserId: String(targetUserId || ""),
+    targetName: String(target?.username || target?.name || "لاعب").slice(0, 60),
+    message: String(message || "").slice(0, 140),
+    at: Date.now()
+  };
+  const logs = getVoiceCountryModerationLogsV476J(safeCode).concat(item).slice(-40);
+  voiceCountryModerationLogsV476J.set(safeCode, logs);
+  try { io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:moderationLog", { code: safeCode, item, logs: logs.slice(-12) }); } catch {}
+  try { emitVoiceCountryModerationStateV476J(safeCode); } catch {}
+  return item;
+}
+
+
+
 io.on("connection", (socket) => {
   // V139_LOCAL_PRESENCE: حالة اللاعب على السيرفر المحلي
   const setPresenceV139 = (status) => {
     const safeStatus = ["online", "menu", "playing", "offline"].includes(String(status)) ? String(status) : "online";
     socket.user.presenceStatusV139 = safeStatus;
-      // V439_FRIEND_PRESENCE_REAL_FRIENDS_ONLY / V439B_FRIEND_PRIVACY_FLEX_READY:
-      // لا ترسل "صديقك دخل" لكل اللاعبين. ترسل فقط لمن هم أصدقاء حقيقيون في قاعدة البيانات.
-      try {
-        const dbPresenceV439 = readDb();
-        const mePresenceV439 = Array.isArray(dbPresenceV439.users)
-          ? dbPresenceV439.users.find((u) => String(u.id) === String(socket.user.id))
-          : null;
-        const friendIdsPresenceV439 = new Set(
-          Array.isArray(mePresenceV439?.friends)
-            ? mePresenceV439.friends.map((id) => String(id))
-            : []
-        );
-
-        for (const friendIdPresenceV439 of friendIdsPresenceV439) {
-          if (!friendIdPresenceV439 || friendIdPresenceV439 === String(socket.user.id)) continue;
-          const targetSocketIdPresenceV439 = connectedUserSocketsV137O.get(friendIdPresenceV439);
-          if (!targetSocketIdPresenceV439) continue;
-
-          io.to(targetSocketIdPresenceV439).emit("friend:presence", {
-            userId: socket.user.id,
-            username: socket.user.username,
-            status: safeStatus,
-            at: Date.now(),
-            friendsOnlyV439: true
-          });
-        }
-      } catch (presenceErrV439) {
-        console.error("V439_FRIEND_PRESENCE_REAL_FRIENDS_ONLY_FAILED", presenceErrV439);
-      }
+    emitFriendPresenceOnlyRealFriendsV475D1R2(socket.user.id, { // V475D1_R2_FRIEND_PRESENCE_ONLY_REAL_FRIENDS_SAFE
+      userId: socket.user.id,
+      username: socket.user.username,
+      status: safeStatus,
+      at: Date.now()
+    });
     console.log("V139 presence:", socket.user.id, safeStatus);
   };
 
@@ -4187,6 +5265,9 @@ io.on("connection", (socket) => {
 
   connectedUserSocketsV137O.set(String(socket.user.id), socket.id);
   socket.on("disconnect", () => {
+    removeVoiceCountryPresenceForSocketV475F2(socket, "disconnect"); // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+    clearVoiceCountryVoiceStateV475E1(socket, socket.voiceCountryCodeV475B); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+    leaveVoiceCountryRoomV475B(socket, "disconnect"); // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
     if (connectedUserSocketsV137O.get(String(socket.user.id)) === socket.id) connectedUserSocketsV137O.delete(String(socket.user.id));
   });
   
@@ -4199,6 +5280,513 @@ socket.emit("rooms:list", roomList());
     socket.emit("rooms:list", roomList());
   });
 
+  socket.on("voiceCountry:list", () => { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+    if (socketCooldownV416A(socket, "voice_country_list", 700)) return;
+    socket.emit("voiceCountry:list", makeVoiceCountryListV475B());
+  });
+
+  socket.on("voiceCountry:join", ({ code } = {}) => { // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+    if (socketCooldownV416A(socket, "voice_country_join", 900)) return;
+    const safeCode = normalizeVoiceCountryCodeV475B(code);
+    if (!safeCode) return socket.emit("voiceCountry:notice", { ok: false, message: "دولة غير صحيحة" });
+
+    const oldCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+    if (oldCode && oldCode !== safeCode) leaveVoiceCountryRoomV475B(socket, "switch");
+
+    let map = getVoiceCountryMapV475B(safeCode);
+    pruneVoiceCountryGhostPresenceV475F2("before_join"); // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+    removeVoiceCountryPresenceForUserEverywhereV475F2(socket.user?.id, String(socket.id || "")); // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+    map = getVoiceCountryMapV475B(safeCode); // V475F2C1_SERVER_JOIN_MAP_REACQUIRE_FIX_SAFE
+    if (!map) return socket.emit("voiceCountry:notice", { ok: false, message: "تعذر دخول المجلس" }); // V475F2C1_SERVER_JOIN_MAP_REACQUIRE_FIX_SAFE
+    const dbV475B3 = readDb(); // V475B3_COUNTRY_ROOM_PLAYER_CARD_PRIVACY_SAFE
+    const dbUserV475B3 = (dbV475B3.users || []).find((u) => String(u.id) === String(socket.user.id)); // V475B3_COUNTRY_ROOM_PLAYER_CARD_PRIVACY_SAFE
+    const participant = makeVoiceCountryParticipantV475B3(socket, dbUserV475B3);
+    participant.socketId = String(socket.id || ""); // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE // V475B3_COUNTRY_ROOM_PLAYER_CARD_PRIVACY_SAFE
+
+    map.set(String(socket.user.id), participant);
+    voiceCountrySocketIndexV475F2.set(String(socket.id || ""), { userId: String(socket.user.id || ""), code: safeCode, at: Date.now() }); // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
+    socket.voiceCountryCodeV475B = safeCode;
+    try { socket.join(`voiceCountry:${safeCode}`); } catch {}
+
+    socket.emit("voiceCountry:joined", makeVoiceCountryStateV475B(safeCode));
+    socket.emit("voiceCountry:messages", { code: safeCode, messages: getVisibleVoiceCountryMessagesV475G7DR3(safeCode).slice(-VOICE_COUNTRY_MAX_MESSAGES_V475C) });
+    socket.emit("voiceCountry:mutes", { code: safeCode, mutes: getVoiceCountryMutesForUserV475F1(socket.user?.id, safeCode) }); // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+    setVoiceCountryVoiceStateV475E1(socket, safeCode, { muted: true, speaking: false }); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+    socket.emit("voiceCountry:voiceStates", { code: safeCode, states: makeVoiceCountryVoiceStatesV475E1(safeCode) }); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+    emitVoiceCountryModerationStateV476J(safeCode, socket); // V476J_R6C_EMIT_MOD_STATE_ON_JOIN
+    emitVoiceCountryVoiceStatesV475E1(safeCode); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+  });
+
+  socket.on("voiceCountry:leave", () => {
+    removeVoiceCountryPresenceForSocketV475F2(socket, "leave"); // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
+    if (socketCooldownV416A(socket, "voice_country_leave", 500)) return;
+    leaveVoiceCountryRoomV475B(socket, "leave");
+    socket.emit("voiceCountry:joined", { code: "", count: 0, participants: [] });
+  });
+
+  socket.on("voiceCountry:messages:get", ({ code } = {}) => { // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+    const requestedCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    if (!requestedCode) return socket.emit("voiceCountry:messages", { code: "", messages: [] });
+    socket.emit("voiceCountry:messages", {
+      code: requestedCode,
+      messages: getVisibleVoiceCountryMessagesV475G7DR3(requestedCode).slice(-VOICE_COUNTRY_MAX_MESSAGES_V475C)
+    });
+  });
+
+  socket.on("voiceCountry:message", ({ code, text } = {}) => { // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
+    if (socketCooldownV416A(socket, "voice_country_message", 1200)) return;
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+    if (!safeCode || !joinedCode || safeCode !== joinedCode) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "ادخل المجلس أولًا قبل إرسال رسالة" });
+    }
+
+    const settingsV476J = getVoiceCountryModerationSettingsV476J(safeCode); // V476J_R6C_CHAT_LOCK_IN_HANDLER
+    if (settingsV476J.chatLocked && !isVoiceCountryModeratorV476D1R2(socket)) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "رسائل المجلس مقفلة مؤقتًا بواسطة المشرف" });
+    }
+
+    const cleanText = String(text || "").replace(/\s+/g, " ").trim();
+    if (!cleanText) return socket.emit("voiceCountry:notice", { ok: false, message: "اكتب رسالة أولًا" });
+    if (cleanText.length > 180) return socket.emit("voiceCountry:notice", { ok: false, message: "الرسالة طويلة جدًا" });
+
+    const moderationV475D = cleanVoiceCountryTextV475D(cleanText); // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+    if (!moderationV475D.ok) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "تم منع الرسالة لأنها تحتوي على كلمة غير مناسبة" });
+    }
+
+    if (isVoiceCountryDuplicateMessageV475D(socket, safeCode, moderationV475D.text)) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "لا تكرر نفس الرسالة بسرعة" });
+    }
+
+    const msg = makeVoiceCountryMessageV475C(socket, safeCode, moderationV475D.text); // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+    pushVoiceCountryMessageV475C(safeCode, msg);
+    io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:message", msg);
+  });
+  socket.on("voiceCountry:voiceState", ({ code, muted, speaking } = {}) => { // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_voice_state_v475e1", 500)) return;
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    if (!safeCode || String(socket.voiceCountryCodeV475B || "") !== safeCode) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "ادخل المجلس أولًا" });
+    }
+
+    const uid = String(socket?.user?.id || "");
+    if (!uid) return socket.emit("voiceCountry:notice", { ok: false, message: "تعذر معرفة المستخدم" });
+
+    cleanupVoiceCountrySpeakerQueueV476D1R2(safeCode);
+
+    const wantsToSpeak = (!!speaking && !muted) || muted === false;
+    const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+    const settingsV476J = getVoiceCountryModerationSettingsV476J(safeCode); // V476J_R6C_VOICESTATE_LOCK_IN_HANDLER
+    if (wantsToSpeak && !speakerSet.has(uid) && settingsV476J.handLocked && !isVoiceCountryModeratorV476D1R2(socket)) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "رفع اليد مقفل مؤقتًا بواسطة المشرف" });
+    }
+
+    if (wantsToSpeak && !speakerSet.has(uid)) {
+      if (speakerSet.size >= VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2) {
+        const pos = addToVoiceCountryHandQueueV476D1R2(safeCode, uid);
+        setVoiceCountrySpeakerVoiceStateV476D1R2(safeCode, uid, true, false);
+        emitVoiceCountryVoiceStatesV475E1(safeCode);
+        emitVoiceCountryStateV475B(safeCode);
+        emitVoiceCountryListV475B();
+
+        return socket.emit("voiceCountry:notice", {
+          ok: true,
+          message: `المنصة ممتلئة: مسموح 4 متحدثين فقط. تم وضعك في الانتظار رقم ${pos || "?"} ✋`
+        });
+      }
+
+      speakerSet.add(uid);
+      removeFromVoiceCountryHandQueueV476D1R2(safeCode, uid);
+      socket.emit("voiceCountry:notice", { ok: true, message: "تم صعودك للمنصة 🎙️" });
+    }
+
+    if (!wantsToSpeak) {
+      removeVoiceCountrySpeakerAndQueueV476D1R2(safeCode, uid, true);
+    }
+
+    const state = setVoiceCountryVoiceStateV475E1(socket, safeCode, {
+      muted: wantsToSpeak ? false : true,
+      speaking: wantsToSpeak
+    });
+
+    io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:voiceState", { code: safeCode, ...state });
+    emitVoiceCountryVoiceStatesV475E1(safeCode);
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+  });
+
+
+  // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE: real audio WebRTC signaling for voice country councils
+  function emitVoiceCountryWebRtcSignalV476B(socket, eventName, payload = {}, toUserId) {
+    const safeCode = normalizeVoiceCountryCodeV475B(payload?.code || socket?.voiceCountryCodeV475B || "");
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket?.voiceCountryCodeV475B || "");
+    if (!safeCode || !joinedCode || safeCode !== joinedCode) {
+      socket.emit("voiceCountry:notice", { ok: false, message: "ادخل المجلس أولًا قبل تشغيل الصوت" });
+      return false;
+    }
+
+    const fromUserId = String(socket?.user?.id || "");
+    const targetUserId = String(toUserId || payload?.toUserId || "");
+    if (!fromUserId || !targetUserId || fromUserId === targetUserId) {
+      socket.emit("voiceCountry:notice", { ok: false, message: "هدف الصوت غير صحيح" });
+      return false;
+    }
+
+    const map = getVoiceCountryMapV475B(safeCode);
+    if (!map || !map.has(fromUserId) || !map.has(targetUserId)) {
+      socket.emit("voiceCountry:notice", { ok: false, message: "الطرف الآخر غير موجود داخل المجلس" });
+      return false;
+    }
+
+    let jsonLen = 0;
+    try { jsonLen = JSON.stringify(payload || {}).length; } catch { jsonLen = 999999; }
+    if (jsonLen > 12000) {
+      socket.emit("voiceCountry:notice", { ok: false, message: "إشارة الصوت كبيرة جدًا" });
+      return false;
+    }
+
+    const fromParticipant = map.get(fromUserId) || {};
+    const packet = {
+      code: safeCode,
+      fromUserId,
+      fromUsername: String(fromParticipant?.username || socket?.user?.username || "لاعب").slice(0, 60),
+      toUserId: targetUserId,
+      at: Date.now(),
+      ...payload,
+      code: safeCode,
+      toUserId: targetUserId
+    };
+
+    let sent = 0;
+    try {
+      for (const [sid, row] of voiceCountrySocketIndexV475F2.entries()) {
+        if (
+          row &&
+          String(row.userId || "") === targetUserId &&
+          normalizeVoiceCountryCodeV475B(row.code || "") === safeCode
+        ) {
+          io.to(String(sid)).emit(eventName, packet);
+          sent++;
+        }
+      }
+    } catch {}
+
+    if (!sent) {
+      socket.emit("voiceCountry:notice", { ok: false, message: "تعذر الوصول للطرف الآخر صوتيًا" });
+      return false;
+    }
+
+    return true;
+  }
+
+  socket.on("voiceCountry:webrtc:offer", ({ code, toUserId, offer } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_webrtc_offer_v476b", 500)) return;
+    if (!offer) return socket.emit("voiceCountry:notice", { ok: false, message: "عرض الصوت غير صحيح" });
+    emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:offer", { code, offer }, toUserId);
+  });
+
+  socket.on("voiceCountry:webrtc:answer", ({ code, toUserId, answer } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_webrtc_answer_v476b", 500)) return;
+    if (!answer) return socket.emit("voiceCountry:notice", { ok: false, message: "رد الصوت غير صحيح" });
+    emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:answer", { code, answer }, toUserId);
+  });
+
+  socket.on("voiceCountry:webrtc:ice", ({ code, toUserId, candidate } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_webrtc_ice_v476b", 120)) return;
+    if (!candidate) return;
+    emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:ice", { code, candidate }, toUserId);
+  });
+
+  socket.on("voiceCountry:webrtc:end", ({ code, toUserId } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_webrtc_end_v476b", 700)) return;
+    emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:end", { code }, toUserId);
+  });
+
+
+
+  socket.on("voiceCountry:hand:raise", ({ code } = {}) => { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_hand_raise_v476d1r2", 800)) return;
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const uid = String(socket?.user?.id || "");
+    if (!safeCode || String(socket.voiceCountryCodeV475B || "") !== safeCode) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "ادخل المجلس أولًا" });
+    }
+
+    cleanupVoiceCountrySpeakerQueueV476D1R2(safeCode);
+    const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+    const settingsV476J = getVoiceCountryModerationSettingsV476J(safeCode); // V476J_R6C_HAND_LOCK_IN_HANDLER
+    if (settingsV476J.handLocked && !speakerSet.has(uid) && !isVoiceCountryModeratorV476D1R2(socket)) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "رفع اليد مقفل مؤقتًا بواسطة المشرف" });
+    }
+
+    if (speakerSet.has(uid)) {
+      return socket.emit("voiceCountry:notice", { ok: true, message: "أنت موجود على المنصة بالفعل 🎙️" });
+    }
+
+    if (speakerSet.size < VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2) {
+      speakerSet.add(uid);
+      removeFromVoiceCountryHandQueueV476D1R2(safeCode, uid);
+      setVoiceCountrySpeakerVoiceStateV476D1R2(safeCode, uid, true, false);
+      emitVoiceCountryVoiceStatesV475E1(safeCode);
+      emitVoiceCountryStateV475B(safeCode);
+      emitVoiceCountryListV475B();
+      return socket.emit("voiceCountry:notice", { ok: true, message: "تم صعودك للمنصة 🎙️ افتح المايك عندما يأتي دورك" });
+    }
+
+    const pos = addToVoiceCountryHandQueueV476D1R2(safeCode, uid);
+    emitVoiceCountryStateV475B(safeCode);
+    return socket.emit("voiceCountry:notice", { ok: true, message: `تم رفع يدك ✋ ترتيبك: ${pos}` });
+  });
+
+  socket.on("voiceCountry:hand:cancel", ({ code } = {}) => { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_hand_cancel_v476d1r2", 800)) return;
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const uid = String(socket?.user?.id || "");
+    if (!safeCode || !uid) return;
+
+    removeFromVoiceCountryHandQueueV476D1R2(safeCode, uid);
+    emitVoiceCountryStateV475B(safeCode);
+    socket.emit("voiceCountry:notice", { ok: true, message: "تم إلغاء رفع اليد" });
+  });
+
+  socket.on("voiceCountry:speaker:leave", ({ code } = {}) => { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_speaker_leave_v476d1r2", 900)) return;
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const uid = String(socket?.user?.id || "");
+    if (!safeCode || !uid) return;
+
+    removeVoiceCountrySpeakerAndQueueV476D1R2(safeCode, uid, true);
+    emitVoiceCountryVoiceStatesV475E1(safeCode);
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+    socket.emit("voiceCountry:notice", { ok: true, message: "نزلت من المنصة وأصبحت مستمعًا" });
+  });
+
+  socket.on("voiceCountry:speaker:promote", ({ code, targetUserId } = {}) => { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_speaker_promote_v476d1r2", 900)) return;
+    if (!isVoiceCountryModeratorV476D1R2(socket)) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "هذا الخيار للمشرف فقط" });
+    }
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const target = String(targetUserId || "");
+    if (!safeCode || !target) return;
+
+    cleanupVoiceCountrySpeakerQueueV476D1R2(safeCode);
+    const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+
+    if (speakerSet.size >= VOICE_COUNTRY_MAX_SPEAKERS_V476D1_R2 && !speakerSet.has(target)) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "المنصة ممتلئة: الحد 4 متحدثين" });
+    }
+
+    speakerSet.add(target);
+    removeFromVoiceCountryHandQueueV476D1R2(safeCode, target);
+    setVoiceCountrySpeakerVoiceStateV476D1R2(safeCode, target, true, false);
+    emitVoiceCountryNoticeToUserV476D1R2(safeCode, target, "المشرف صعّدك للمنصة 🎙️");
+      pushVoiceCountryModerationLogV476J(safeCode, "promote_speaker", socket, target, "تصعيد متحدث للمنصة"); // V476J_R6_MOD_LOG_PROMOTE
+    emitVoiceCountryVoiceStatesV475E1(safeCode);
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+  });
+
+  socket.on("voiceCountry:speaker:demote", ({ code, targetUserId } = {}) => { // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_speaker_demote_v476d1r2", 900)) return;
+    if (!isVoiceCountryModeratorV476D1R2(socket)) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "هذا الخيار للمشرف فقط" });
+    }
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const target = String(targetUserId || "");
+    if (!safeCode || !target) return;
+
+    removeVoiceCountrySpeakerAndQueueV476D1R2(safeCode, target, true);
+    emitVoiceCountryNoticeToUserV476D1R2(safeCode, target, "تم إنزالك من المنصة بواسطة المشرف");
+      pushVoiceCountryModerationLogV476J(safeCode, "demote_speaker", socket, target, "إنزال متحدث من المنصة"); // V476J_R6_MOD_LOG_DEMOTE
+    emitVoiceCountryVoiceStatesV475E1(safeCode);
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+  });
+
+  // V476I4_COUNTRY_COUNCIL_MODERATOR_TOOLS_SAFE: reject hand, mute speaker mic, kick user from country council
+  socket.on("voiceCountry:hand:reject", ({ code, targetUserId } = {}) => {
+    if (socketCooldownV416A(socket, "voice_country_hand_reject_v476i4", 900)) return;
+    if (!isVoiceCountryModeratorV476D1R2(socket)) return socket.emit("voiceCountry:notice", { ok: false, message: "هذا الخيار للمشرف فقط" });
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+    const target = String(targetUserId || "");
+    if (!safeCode || !target || safeCode !== joinedCode) return socket.emit("voiceCountry:notice", { ok: false, message: "طلب غير صحيح" });
+
+    removeFromVoiceCountryHandQueueV476D1R2(safeCode, target);
+    emitVoiceCountryNoticeToUserV476D1R2(safeCode, target, "تم رفض طلب رفع اليد هذه المرة");
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+    socket.emit("voiceCountry:notice", { ok: true, message: "تم رفض الطلب" });
+    pushVoiceCountryModerationLogV476J(safeCode, "reject_hand", socket, target, "رفض طلب رفع اليد"); // V476J_R6_MOD_LOG_REJECT
+  });
+
+  socket.on("voiceCountry:speaker:mute", ({ code, targetUserId } = {}) => {
+    if (socketCooldownV416A(socket, "voice_country_speaker_mute_v476i4", 900)) return;
+    if (!isVoiceCountryModeratorV476D1R2(socket)) return socket.emit("voiceCountry:notice", { ok: false, message: "هذا الخيار للمشرف فقط" });
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+    const target = String(targetUserId || "");
+    if (!safeCode || !target || safeCode !== joinedCode) return socket.emit("voiceCountry:notice", { ok: false, message: "طلب غير صحيح" });
+
+    const speakerSet = getVoiceCountrySpeakerSetV476D1R2(safeCode);
+    if (!speakerSet.has(target)) return socket.emit("voiceCountry:notice", { ok: false, message: "هذا اللاعب ليس على المنصة" });
+
+    setVoiceCountrySpeakerVoiceStateV476D1R2(safeCode, target, true, false);
+    emitVoiceCountryNoticeToUserV476D1R2(safeCode, target, "المشرف كتم المايك مؤقتًا");
+    emitVoiceCountryVoiceStatesV475E1(safeCode);
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+    socket.emit("voiceCountry:notice", { ok: true, message: "تم كتم مايك المتحدث" });
+    pushVoiceCountryModerationLogV476J(safeCode, "mute_speaker", socket, target, "كتم مايك متحدث"); // V476J_R6_MOD_LOG_MUTE
+  });
+
+  socket.on("voiceCountry:moderator:kick", ({ code, targetUserId } = {}) => {
+    if (socketCooldownV416A(socket, "voice_country_moderator_kick_v476i4", 1200)) return;
+    if (!isVoiceCountryModeratorV476D1R2(socket)) return socket.emit("voiceCountry:notice", { ok: false, message: "هذا الخيار للمشرف فقط" });
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+    const target = String(targetUserId || "");
+    const actor = String(socket?.user?.id || "");
+    if (!safeCode || !target || !actor || target === actor || safeCode !== joinedCode) return socket.emit("voiceCountry:notice", { ok: false, message: "لا يمكن تنفيذ هذا الإجراء" });
+
+    removeVoiceCountrySpeakerAndQueueV476D1R2(safeCode, target, false);
+    removeFromVoiceCountryHandQueueV476D1R2(safeCode, target);
+
+    let kicked = 0;
+    try {
+      for (const [sid, row] of voiceCountrySocketIndexV475F2.entries()) {
+        if (row && String(row.userId || "") === target && normalizeVoiceCountryCodeV475B(row.code || "") === safeCode) {
+          const targetSocket = io.sockets.sockets.get(String(sid));
+          if (targetSocket) {
+            try { targetSocket.emit("voiceCountry:notice", { ok: false, message: "تم إخراجك من المجلس بواسطة المشرف" }); } catch {}
+            try { targetSocket.emit("voiceCountry:kicked", { code: safeCode, message: "تم إخراجك من المجلس بواسطة المشرف" }); } catch {}
+            try { targetSocket.emit("voiceCountry:joined", { code: "", count: 0, participants: [] }); } catch {}
+            try { removeVoiceCountryPresenceForSocketV475F2(targetSocket, "moderator_kick_v476i4"); } catch {}
+            try { targetSocket.voiceCountryCodeV475B = ""; } catch {}
+            try { targetSocket.leave(`voiceCountry:${safeCode}`); } catch {}
+            kicked++;
+          }
+        }
+      }
+    } catch {}
+
+    emitVoiceCountryVoiceStatesV475E1(safeCode);
+    emitVoiceCountryStateV475B(safeCode);
+    emitVoiceCountryListV475B();
+    socket.emit("voiceCountry:notice", { ok: true, message: kicked ? "تم إخراج اللاعب من المجلس" : "تم حذف اللاعب من قائمة المجلس إن كان موجودًا" });
+    pushVoiceCountryModerationLogV476J(safeCode, "kick_user", socket, target, "إخراج لاعب من المجلس"); // V476J_R6_MOD_LOG_KICK
+  });
+
+  socket.on("voiceCountry:moderation:toggle", ({ code, key, value } = {}) => { // V476J_R6_COUNTRY_COUNCIL_POLISH_SERVER_SAFE
+    if (socketCooldownV416A(socket, "voice_country_moderation_toggle_v476j_r6", 900)) return;
+    if (!isVoiceCountryModeratorV476D1R2(socket)) return socket.emit("voiceCountry:notice", { ok: false, message: "هذا الخيار للمشرف فقط" });
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+    if (!safeCode || safeCode !== joinedCode) return socket.emit("voiceCountry:notice", { ok: false, message: "ادخل المجلس أولًا" });
+
+    const settings = getVoiceCountryModerationSettingsV476J(safeCode);
+    const k = String(key || "");
+    if (k === "handLocked") settings.handLocked = !!value;
+    else if (k === "chatLocked") settings.chatLocked = !!value;
+    else return socket.emit("voiceCountry:notice", { ok: false, message: "خيار غير صحيح" });
+
+    settings.updatedAt = Date.now();
+    voiceCountryModerationSettingsV476J.set(safeCode, settings);
+
+    const msg = k === "handLocked"
+      ? (settings.handLocked ? "تم قفل رفع اليد مؤقتًا" : "تم فتح رفع اليد")
+      : (settings.chatLocked ? "تم قفل رسائل المجلس مؤقتًا" : "تم فتح رسائل المجلس");
+
+    pushVoiceCountryModerationLogV476J(safeCode, k, socket, "", msg);
+    emitVoiceCountryModerationStateV476J(safeCode);
+    socket.emit("voiceCountry:notice", { ok: true, message: msg });
+  });
+
+
+
+  socket.on("voiceCountry:report", ({ code, messageId, reason } = {}) => { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    if (!safeCode) return socket.emit("voiceCountry:notice", { ok: false, message: "ادخل المجلس أولًا" });
+
+    cleanupVoiceCountryMessagesV475G7DR3(safeCode); // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+    const msg = findVoiceCountryMessageV475D(safeCode, messageId);
+    if (!msg) return socket.emit("voiceCountry:notice", { ok: false, message: "لم يتم العثور على الرسالة" });
+
+    const reportGuardV475G7DR3 = makeVoiceCountryReportGuardV475G7DR3({
+      code: safeCode,
+      messageId: String(messageId || ""),
+      reporterId: String(socket.user?.id || ""),
+      reportedUserId: String(msg?.userId || "")
+    }); // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+
+    if (!reportGuardV475G7DR3.ok) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: reportGuardV475G7DR3.message || "تعذر تسجيل البلاغ" });
+    }
+
+    pushVoiceCountryReportV475D({
+      code: safeCode,
+      messageId: String(messageId || ""),
+      reporterId: String(socket.user?.id || ""),
+      reportedUserId: String(msg?.userId || ""),
+      reportedUsername: String(msg?.username || msg?.senderName || "لاعب"),
+      textPreview: String(msg?.text || "").slice(0, 120),
+      reason: String(reason || "message_report").slice(0, 80),
+      status: String(reportGuardV475G7DR3.status || "recorded"),
+      uniqueReporters: Number(reportGuardV475G7DR3.uniqueReportersAfter || 1),
+      priority: String(reportGuardV475G7DR3.priority || "normal"),
+      hiddenByReports: !!reportGuardV475G7DR3.hideMessage
+    });
+
+    if (reportGuardV475G7DR3.hideMessage) { // V475G7D_R3_SERVER_ONLY_TTL_REPORTS_SAFE
+      hideVoiceCountryMessageByReportsV475G7DR3(safeCode, messageId, reportGuardV475G7DR3.uniqueReportersAfter);
+      io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:messages", {
+        code: safeCode,
+        messages: getVisibleVoiceCountryMessagesV475G7DR3(safeCode).slice(-VOICE_COUNTRY_MAX_MESSAGES_V475C)
+      });
+    }
+
+    socket.emit("voiceCountry:notice", { ok: true, message: "تم إرسال البلاغ للمراجعة ✅" });
+  });
+
+  socket.on("voiceCountry:mutes:get", ({ code } = {}) => { // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+    if (socketCooldownV416A(socket, "voice_country_mutes_get_v475f1", 900)) return;
+
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    socket.emit("voiceCountry:mutes", {
+      code: safeCode,
+      mutes: getVoiceCountryMutesForUserV475F1(socket.user?.id, safeCode)
+    });
+  });
+
+  socket.on("voiceCountry:mute", ({ code, targetUserId, targetUsername } = {}) => { // V475D_COUNTRY_ROOM_CHAT_PROTECTION_SAFE
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const ok = addVoiceCountryMuteV475D(socket.user?.id, targetUserId);
+    if (ok) persistVoiceCountryMuteV475F1(socket.user?.id, targetUserId, safeCode, targetUsername); // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
+
+    if (!safeCode || !ok) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "تعذر كتم هذا اللاعب" });
+    }
+
+    socket.emit("voiceCountry:notice", {
+      ok: true,
+      message: `تم كتم ${String(targetUsername || "اللاعب").slice(0, 30)} مؤقتًا`
+    });
+  });
+
   socket.on("profile:update", () => {
     for (const room of rooms.values()) {
       const me = room.players.find((p) => p.id === socket.user.id);
@@ -4209,6 +5797,19 @@ socket.emit("rooms:list", roomList());
         emitRoom(room);
       }
     }
+
+    const activeVoiceCodeV475B3 = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || ""); // V475B3_COUNTRY_ROOM_PLAYER_CARD_PRIVACY_SAFE
+    if (activeVoiceCodeV475B3) {
+      const dbV475B3 = readDb();
+      const dbUserV475B3 = (dbV475B3.users || []).find((u) => String(u.id) === String(socket.user.id));
+      const mapV475B3 = getVoiceCountryMapV475B(activeVoiceCodeV475B3);
+      if (mapV475B3) {
+        mapV475B3.set(String(socket.user.id), makeVoiceCountryParticipantV475B3(socket, dbUserV475B3));
+        emitVoiceCountryStateV475B(activeVoiceCodeV475B3);
+        emitVoiceCountryListV475B();
+      }
+    }
+
     socket.emit("rooms:list", roomList());
   });
 
@@ -4228,20 +5829,11 @@ socket.emit("rooms:list", roomList());
 
     const roomMaxPlayers = Number(maxPlayers) === 4 ? 4 : 2;
     const safeDominoMode = game === "domino" && roomMaxPlayers === 4 && String(dominoMode) === "teams" ? "teams" : "classic";
-    // V445C_FOUR_PLAYER_FREE_WAGER_SERVER_GUARD:
-    // السيرفر لا يقبل تحدي عملات في دومينو 4 شراكة أو كيرم 4 أو بلياردو 4.
-    const isFourPlayerFreeCreateV445C = roomMaxPlayers === 4 && (
-      (game === "domino" && safeDominoMode === "teams") ||
-      game === "carrom" ||
-      game === "billiards"
-    );
-    const safeWagerV136IK = isFourPlayerFreeCreateV445C ? 0 : normalizeWagerV136IK(wager);
+    const safeWagerV136IK = normalizeWagerV136IK(wager);
 
     {
       const db = readDb();
       const creator = db.users.find((u) => u.id === socket.user.id);
-      // V438C_CANCEL_STARTER_10000_KEEP_DAILY_ADS_SERVER_ONLY:
-      // إلغاء منح 10,000 عند تحدي العملات. الرصيد الحقيقي يأتي من المكافأة اليومية والإعلانات والمهام فقط.
       if (!creator || Number(creator.coins || 0) < safeWagerV136IK) {
         replyCreateV221({ ok: false, error: `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز` });
         return socket.emit("error:message", `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز`);
@@ -4263,7 +5855,6 @@ socket.emit("rooms:list", roomList());
         if (game === "domino" && rDominoMode !== safeDominoMode) return false;
         if ((r.players || []).length >= (r.maxPlayers || 2)) return false;
         if ((r.players || []).some((p) => p.id === socket.user.id)) return false;
-        forceFourPlayerFreeWagerV445C(r);
         const existingWager = Number(r?.wager?.amount || 0);
         if (existingWager && existingWager !== safeWagerV136IK) return false;
         return true;
@@ -4303,8 +5894,7 @@ socket.emit("rooms:list", roomList());
         pot: 0,
         paid: {},
         locked: false,
-        paidOut: false,
-        fourPlayerFreeV445C: !!isFourPlayerFreeCreateV445C
+        paidOut: false
       },
       status: "waiting",
       players: [
@@ -4391,7 +5981,6 @@ socket.emit("rooms:list", roomList());
 
     const existing = room.players.find((p) => p.id === socket.user.id);
 
-    forceFourPlayerFreeWagerV445C(room);
     if (!existing && room.wager && room.wager.amount > 0 && !isBotIdV136IK(socket.user.id)) {
       const db = readDb();
       const user = db.users.find((u) => u.id === socket.user.id);
@@ -4513,189 +6102,136 @@ socket.emit("rooms:list", roomList());
   });
 
 
-  // V178_SEND_GIFT_TO_ROOM: إرسال هدية حقيقية داخل غرفة اللعب لكل اللاعبين
+  // V454_SUBSCRIPTION_GIFTS_ONLY_NO_COIN_PRICES: إرسال الهدايا حسب الاشتراك فقط، بدون خصم كوينز وبدون مخزون قابل لإعادة الإرسال.
   socket.on("gift:send", ({ roomId, toUserId, giftType } = {}) => {
     const room = rooms.get(String(roomId || ""));
     if (!room) return socket.emit("error:message", "ROOM_NOT_FOUND");
 
     const sender = (room.players || []).find((p) => String(p.id) === String(socket.user.id));
     if (!sender) return socket.emit("error:message", "NOT_IN_ROOM");
-    if (socketCooldownV416A(socket, `gift_send_${room.id}`, 4500)) return; // V416A: منع سبام الهدايا.
+    if (socketCooldownV416A(socket, `gift_send_${room.id}`, 4500)) return;
 
     const receiver = (room.players || []).find((p) => String(p.id) === String(toUserId));
     if (!receiver) return socket.emit("error:message", "GIFT_RECEIVER_NOT_IN_ROOM");
-
     if (String(receiver.id) === String(sender.id)) {
       return socket.emit("error:message", "لا يمكنك إرسال الهدية لنفسك");
     }
 
     const safeGiftType = String(giftType || "").trim().slice(0, 40);
-
-    const giftPricesV178 = {
-      // V440_GIFT_PRICES_PREMIUM_ECONOMY_READY:
-      // رفع أسعار الهدايا الفخمة حتى تكون لها قيمة وتحمي اقتصاد اللعبة.
-      royal_lion_8s: 200000,
-      legend_lion_15s: 300000,
-      super_car_15s: 220000,
-      royal_fireworks_15s: 150000,
-      royal_wolf_15s: 180000,
-      royal_horse_15s: 200000,
-      royal_crown_15s: 250000
-    };
-
-    const giftNamesV178 = {
-      royal_lion_8s: "الأسد الملكي",
-      legend_lion_15s: "الأسد الأسطوري",
-      super_car_15s: "السيارة الأسطورية",
-      royal_fireworks_15s: "الألعاب النارية الملكية",
-      royal_wolf_15s: "الذئب الأسطوري",
-      royal_horse_15s: "الخيل الملكي",
-      royal_crown_15s: "التاج الملكي"
-    };
-
-    if (!giftPricesV178[safeGiftType]) {
+    if (!VIP_GIFT_TYPES_V454[safeGiftType]) {
       return socket.emit("error:message", "GIFT_NOT_READY");
     }
 
-    const freeGiftMonthV178 = false;
-    const price = Number(giftPricesV178[safeGiftType] || 0);
-
-    const dbGiftV414 = readDb();
-    const userObjV414 = dbGiftV414.users.find((u) => String(u.id) === String(socket.user.id));
-    if (!userObjV414) {
+    const dbGiftV454 = readDb();
+    const userObjV454 = dbGiftV454.users.find((u) => String(u.id) === String(socket.user.id));
+    if (!userObjV454) {
       return socket.emit("error:message", "USER_NOT_FOUND");
     }
 
-    const receiverObjV438E = dbGiftV414.users.find((u) => String(u.id) === String(receiver.id));
-    if (!receiverObjV438E) {
-      return socket.emit("error:message", "GIFT_RECEIVER_USER_NOT_FOUND");
+    const giftPermissionV454 = canSendSubscriptionGiftV454(userObjV454, safeGiftType);
+    if (!giftPermissionV454.ok) {
+      return socket.emit("error:message", giftPermissionV454.message || "🎁 إرسال الهدايا يحتاج اشتراك الهدايا.");
     }
 
-    const vipGiftDiscountPercentV415A = isVipSubscriptionActiveV415A(userObjV414) ? VIP_GIFT_DISCOUNT_PERCENT_V415A : 0;
-    const finalGiftPriceV415A = Math.max(1, Math.round(price * (100 - vipGiftDiscountPercentV415A) / 100));
-
-    // V440_GIFT_VALUE_ECONOMY_SINK_70_PERCENT:
-    // المرسل يدفع السعر النهائي، المستلم يحصل على 70% فقط، و30% تُحرق لحماية الاقتصاد.
-    const receiverGiftPercentV440 = 70;
-    const receiverGiftValueV440 = Math.max(1, Math.floor(finalGiftPriceV415A * receiverGiftPercentV440 / 100));
-    const giftEconomySinkV440 = Math.max(0, finalGiftPriceV415A - receiverGiftValueV440);
-    const balanceV438E = Math.max(0, Math.floor(Number(userObjV414.coins || 0) || 0));
-
-    if (balanceV438E < finalGiftPriceV415A) {
-      return socket.emit("error:message", `رصيدك لا يكفي لإرسال هذه الهدية: ${finalGiftPriceV415A} كوينز`);
+    if (giftPermissionV454.usageAfter) {
+      userObjV454.vipGiftUsageV454 = giftPermissionV454.usageAfter;
     }
 
-    // V438E_GIFT_VALUE_TO_RECEIVER_SERVER_ONLY:
-    // الهدية لم تعد تضيف "أسد/تاج/سيارة" كمخزون. المستلم يحصل على قيمة الهدية ككوينز.
-    // المستلم يحصل على نفس المبلغ الذي دفعه المرسل بعد أي خصم VIP، حتى لا يحدث تضخم اقتصادي.
-    userObjV414.coins = Math.max(0, balanceV438E - finalGiftPriceV415A);
-    receiverObjV438E.coins = Math.max(0, Math.floor(Number(receiverObjV438E.coins || 0) || 0)) + receiverGiftValueV440;
-
-    userObjV414.walletLog = Array.isArray(userObjV414.walletLog) ? userObjV414.walletLog : [];
-    userObjV414.walletLog.unshift({
-      type: "gift_sent_value_v438e",
+    userObjV454.walletLog = Array.isArray(userObjV454.walletLog) ? userObjV454.walletLog : [];
+    userObjV454.walletLog.unshift({
+      type: "gift_subscription_send_v454",
       giftType: safeGiftType,
-      giftName: giftNamesV178[safeGiftType] || safeGiftType,
-      originalPrice: price,
-      vipDiscountPercent: vipGiftDiscountPercentV415A,
-      coins: -finalGiftPriceV415A,
-      toUserId: String(receiver.id),
-      toName: receiver.username || receiver.name || "لاعب",
+      giftName: VIP_GIFT_TYPES_V454[safeGiftType] || safeGiftType,
+      plan: giftPermissionV454.plan.planId,
+      coins: 0,
       at: new Date().toISOString()
     });
-    userObjV414.walletLog = userObjV414.walletLog.slice(0, 30);
-
-    receiverObjV438E.walletLog = Array.isArray(receiverObjV438E.walletLog) ? receiverObjV438E.walletLog : [];
-    receiverObjV438E.walletLog.unshift({
-      type: "gift_value_received_v438e",
-      giftType: safeGiftType,
-      giftName: giftNamesV178[safeGiftType] || safeGiftType,
-      originalPrice: price,
-      vipDiscountPercent: vipGiftDiscountPercentV415A,
-      coins: receiverGiftValueV440,
-      giftPaidPrice: finalGiftPriceV415A,
-      giftEconomySink: giftEconomySinkV440,
-      receiverGiftPercent: receiverGiftPercentV440,
-      fromUserId: String(sender.id),
-      fromName: sender.username || sender.name || "لاعب",
-      at: new Date().toISOString()
-    });
-    receiverObjV438E.walletLog = receiverObjV438E.walletLog.slice(0, 30);
+    userObjV454.walletLog = userObjV454.walletLog.slice(0, 30);
 
     if (!room.giftHistoryV178) room.giftHistoryV178 = [];
+
+    const senderGiftNameV474T2 = String(sender.username || sender.name || "لاعب").trim() || "لاعب"; // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
+    const receiverGiftNameV474T2 = String(receiver.username || receiver.name || "لاعب").trim() || "لاعب"; // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
+    const giftRouteTextV474T2 = `${senderGiftNameV474T2} أرسل إلى ${receiverGiftNameV474T2}`; // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
 
     const giftEvent = {
       id: `gift_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       roomId: room.id,
       fromUserId: sender.id,
-      fromName: sender.username || sender.name || "لاعب",
+      senderUserId: sender.id, // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
+      fromName: senderGiftNameV474T2,
+      senderName: senderGiftNameV474T2, // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
+      routeFromName: senderGiftNameV474T2, // V474X_SERVER_EXPLICIT_ROUTE_PARTS_SAFE
+      fromUsername: senderGiftNameV474T2, // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
       toUserId: receiver.id,
-      toName: receiver.username || receiver.name || "لاعب",
+      receiverUserId: receiver.id, // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
+      toName: receiverGiftNameV474T2,
+      receiverName: receiverGiftNameV474T2, // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
+      routeToName: receiverGiftNameV474T2, // V474X_SERVER_EXPLICIT_ROUTE_PARTS_SAFE
+      toUsername: receiverGiftNameV474T2, // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
+      routeText: giftRouteTextV474T2, // V474T2_SERVER_AUTH_GIFT_ROUTE_LOCKED_TEXT_SAFE
       giftType: safeGiftType,
-      giftName: `${giftNamesV178[safeGiftType] || safeGiftType} (+${receiverGiftValueV440} كوينز للمستلم)`,
-      price: finalGiftPriceV415A,
-      originalPrice: price,
-      vipDiscountPercent: vipGiftDiscountPercentV415A,
-      free: freeGiftMonthV178,
-      giftSource: "coins_value_to_receiver",
-      giftValueToReceiver: true,
-      receiverCoinsDelta: receiverGiftValueV440,
-      receiverGiftPercentV440,
-      paidGiftPriceV440: finalGiftPriceV415A,
-      giftEconomySinkV440,
+      giftName: VIP_GIFT_TYPES_V454[safeGiftType] || safeGiftType,
+      price: 0,
+      originalPrice: 0,
+      vipDiscountPercent: 0,
+      free: true,
+      giftSource: "subscription",
       fromInventory: false,
       inventoryDeltaSender: 0,
       inventoryDeltaReceiver: 0,
+      vipPlan: giftPermissionV454.plan.planId,
       createdAt: new Date().toISOString()
     };
 
-    // V432 + V438E:
-    // حفظ سجل الهدية عند المستلم والمرسل، بدون إضافة giftInventory.
     try {
-      receiverObjV438E.receivedGifts = Array.isArray(receiverObjV438E.receivedGifts) ? receiverObjV438E.receivedGifts : [];
-      receiverObjV438E.receivedGifts.unshift({
-        id: giftEvent.id,
-        roomId: giftEvent.roomId,
-        fromUserId: giftEvent.fromUserId,
-        fromName: giftEvent.fromName,
-        giftType: giftEvent.giftType,
-        giftName: giftEvent.giftName,
-        price: giftEvent.price,
-        valueCoins: receiverGiftValueV440,
-        paidPrice: finalGiftPriceV415A,
-        economySink: giftEconomySinkV440,
-        receiverPercent: receiverGiftPercentV440,
-        source: "value_to_receiver",
-        createdAt: giftEvent.createdAt,
-        status: "received_value"
-      });
-      receiverObjV438E.receivedGifts = receiverObjV438E.receivedGifts.slice(0, 100);
+      const receiverObjV454 = dbGiftV454.users.find((u) => String(u.id) === String(receiver.id));
+      if (receiverObjV454) {
+        receiverObjV454.receivedGifts = Array.isArray(receiverObjV454.receivedGifts) ? receiverObjV454.receivedGifts : [];
+        receiverObjV454.receivedGifts.unshift({
+          id: giftEvent.id,
+          roomId: giftEvent.roomId,
+          fromUserId: giftEvent.fromUserId,
+          fromName: giftEvent.fromName,
+          giftType: giftEvent.giftType,
+          giftName: giftEvent.giftName,
+          price: 0,
+          source: giftEvent.giftSource,
+          fromInventory: false,
+          inventoryDelta: 0,
+          createdAt: giftEvent.createdAt,
+          status: "received"
+        });
+        receiverObjV454.receivedGifts = receiverObjV454.receivedGifts.slice(0, 100);
+        receiverObjV454.giftStats = receiverObjV454.giftStats && typeof receiverObjV454.giftStats === "object" ? receiverObjV454.giftStats : { sent: 0, received: 0 };
+        receiverObjV454.giftStats.received = Number(receiverObjV454.giftStats.received || 0) + 1;
+      }
 
-      userObjV414.sentGifts = Array.isArray(userObjV414.sentGifts) ? userObjV414.sentGifts : [];
-      userObjV414.sentGifts.unshift({
+      userObjV454.sentGifts = Array.isArray(userObjV454.sentGifts) ? userObjV454.sentGifts : [];
+      userObjV454.sentGifts.unshift({
         id: giftEvent.id,
         roomId: giftEvent.roomId,
         toUserId: giftEvent.toUserId,
         toName: giftEvent.toName,
         giftType: giftEvent.giftType,
         giftName: giftEvent.giftName,
-        price: giftEvent.price,
-        valueCoins: receiverGiftValueV440,
-        paidPrice: finalGiftPriceV415A,
-        economySink: giftEconomySinkV440,
-        receiverPercent: receiverGiftPercentV440,
-        source: "value_to_receiver",
+        price: 0,
+        source: giftEvent.giftSource,
+        fromInventory: false,
+        inventoryDelta: 0,
         createdAt: giftEvent.createdAt,
-        status: "sent_value"
+        status: "sent"
       });
-      userObjV414.sentGifts = userObjV414.sentGifts.slice(0, 100);
+      userObjV454.sentGifts = userObjV454.sentGifts.slice(0, 100);
+      userObjV454.giftStats = userObjV454.giftStats && typeof userObjV454.giftStats === "object" ? userObjV454.giftStats : { sent: 0, received: 0 };
+      userObjV454.giftStats.sent = Number(userObjV454.giftStats.sent || 0) + 1;
 
-      writeDb(dbGiftV414);
+      writeDb(dbGiftV454);
       try { emitUserUpdateV136IK(String(receiver.id)); } catch {}
       try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
-    } catch (giftPersistErrV438E) {
-      console.error("V438E_GIFT_VALUE_TO_RECEIVER_PERSIST_FAILED", giftPersistErrV438E);
-      return socket.emit("error:message", "تعذر حفظ الهدية الآن");
+    } catch (giftPersistErrV454) {
+      console.error("V454_SUBSCRIPTION_GIFT_PERSIST_FAILED", giftPersistErrV454);
+      return socket.emit("error:message", "تعذر حفظ الهدية");
     }
 
     room.giftHistoryV178.push(giftEvent);
@@ -4703,6 +6239,136 @@ socket.emit("rooms:list", roomList());
 
     io.to(room.id).emit("gift:sent", giftEvent);
     emitRoom(room);
+  });
+
+
+  socket.on("voiceCountry:gift", ({ code, toUserId, giftType } = {}) => { // V475G7C2_R3_COUNTRY_GIFT_BROADCAST_SERVER_SAFE
+    const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket.voiceCountryCodeV475B || "");
+    if (!safeCode || !joinedCode || safeCode !== joinedCode) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "ادخل المجلس أولًا قبل إرسال هدية" });
+    }
+
+    if (socketCooldownV416A(socket, `voice_country_gift_${safeCode}`, 4500)) return;
+
+    const safeGiftType = String(giftType || "").trim().slice(0, 40);
+    if (!VIP_GIFT_TYPES_V454[safeGiftType]) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "هدية غير صحيحة" });
+    }
+
+    const map = getVoiceCountryMapV475B(safeCode);
+    const targetRaw = String(toUserId || "");
+    if (!map || !targetRaw) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "اختر لاعبًا داخل المجلس" });
+    }
+
+    const entries = Array.from(map.entries());
+    const targetEntry = entries.find(([uid, p]) =>
+      String(uid || "") === targetRaw ||
+      String(p?.userId || "") === targetRaw ||
+      String(p?.id || "") === targetRaw ||
+      String(p?.socketId || "") === targetRaw
+    );
+
+    if (!targetEntry) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "اللاعب غير موجود داخل المجلس" });
+    }
+
+    const [targetUserIdReal, targetParticipant] = targetEntry;
+    if (!targetUserIdReal || String(targetUserIdReal) === String(socket.user?.id || "")) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "لا يمكنك إرسال هدية لنفسك" });
+    }
+
+    const dbGiftV475G7C2 = readDb();
+    const senderObjV475G7C2 = (dbGiftV475G7C2.users || []).find((u) => String(u.id) === String(socket.user.id));
+    const receiverObjV475G7C2 = (dbGiftV475G7C2.users || []).find((u) => String(u.id) === String(targetUserIdReal));
+
+    if (!senderObjV475G7C2) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: "تعذر معرفة المرسل" });
+    }
+
+    const giftPermissionV475G7C2 = canSendSubscriptionGiftV454(senderObjV475G7C2, safeGiftType);
+    if (!giftPermissionV475G7C2.ok) {
+      return socket.emit("voiceCountry:notice", { ok: false, message: giftPermissionV475G7C2.message || "🎁 إرسال الهدايا يحتاج اشتراك الهدايا." });
+    }
+
+    if (giftPermissionV475G7C2.usageAfter) {
+      senderObjV475G7C2.vipGiftUsageV454 = giftPermissionV475G7C2.usageAfter;
+    }
+
+    const senderNameV475G7C2 = String(senderObjV475G7C2.username || senderObjV475G7C2.name || socket.user?.username || "لاعب").trim() || "لاعب";
+    const receiverNameV475G7C2 = String(
+      receiverObjV475G7C2?.username ||
+      receiverObjV475G7C2?.name ||
+      targetParticipant?.username ||
+      targetParticipant?.name ||
+      "لاعب"
+    ).trim() || "لاعب";
+    const routeTextV475G7C2 = `${senderNameV475G7C2} أرسل إلى ${receiverNameV475G7C2}`;
+
+    const giftEvent = {
+      id: `vcgift_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      roomId: `voiceCountry:${safeCode}`,
+      voiceCountryCode: safeCode,
+      countryCode: safeCode,
+      channelType: "voiceCountry",
+      fromUserId: String(socket.user.id),
+      fromName: senderNameV475G7C2,
+      senderName: senderNameV475G7C2,
+      routeFromName: senderNameV475G7C2,
+      fromUsername: senderNameV475G7C2,
+      toUserId: String(targetUserIdReal),
+      toName: receiverNameV475G7C2,
+      receiverName: receiverNameV475G7C2,
+      routeToName: receiverNameV475G7C2,
+      toUsername: receiverNameV475G7C2,
+      routeText: routeTextV475G7C2,
+      giftType: safeGiftType,
+      giftName: VIP_GIFT_TYPES_V454[safeGiftType] || safeGiftType,
+      giftSource: "subscription",
+      vipPlan: giftPermissionV475G7C2.plan?.planId || "",
+      createdAt: Date.now()
+    };
+
+    try {
+      if (receiverObjV475G7C2) {
+        receiverObjV475G7C2.receivedGifts = Array.isArray(receiverObjV475G7C2.receivedGifts) ? receiverObjV475G7C2.receivedGifts : [];
+        receiverObjV475G7C2.receivedGifts.unshift({
+          id: giftEvent.id,
+          roomId: giftEvent.roomId,
+          fromUserId: giftEvent.fromUserId,
+          fromName: giftEvent.fromName,
+          giftType: giftEvent.giftType,
+          giftName: giftEvent.giftName,
+          source: giftEvent.giftSource,
+          createdAt: giftEvent.createdAt
+        });
+        receiverObjV475G7C2.receivedGifts = receiverObjV475G7C2.receivedGifts.slice(0, 100);
+        receiverObjV475G7C2.giftStats = receiverObjV475G7C2.giftStats && typeof receiverObjV475G7C2.giftStats === "object" ? receiverObjV475G7C2.giftStats : { sent: 0, received: 0 };
+        receiverObjV475G7C2.giftStats.received = Number(receiverObjV475G7C2.giftStats.received || 0) + 1;
+      }
+
+      senderObjV475G7C2.sentGifts = Array.isArray(senderObjV475G7C2.sentGifts) ? senderObjV475G7C2.sentGifts : [];
+      senderObjV475G7C2.sentGifts.unshift({
+        id: giftEvent.id,
+        roomId: giftEvent.roomId,
+        toUserId: giftEvent.toUserId,
+        toName: giftEvent.toName,
+        giftType: giftEvent.giftType,
+        giftName: giftEvent.giftName,
+        source: giftEvent.giftSource,
+        createdAt: giftEvent.createdAt
+      });
+      senderObjV475G7C2.sentGifts = senderObjV475G7C2.sentGifts.slice(0, 100);
+      senderObjV475G7C2.giftStats = senderObjV475G7C2.giftStats && typeof senderObjV475G7C2.giftStats === "object" ? senderObjV475G7C2.giftStats : { sent: 0, received: 0 };
+      senderObjV475G7C2.giftStats.sent = Number(senderObjV475G7C2.giftStats.sent || 0) + 1;
+      writeDb(dbGiftV475G7C2);
+    } catch (err) {
+      console.error("V475G7C2_R3_COUNTRY_GIFT_PERSIST_FAILED", err);
+    }
+
+    io.to(`voiceCountry:${safeCode}`).emit("gift:sent", giftEvent);
+    socket.emit("voiceCountry:notice", { ok: true, message: "تم إرسال الهدية داخل المجلس 🎁" });
   });
 
   socket.on("chat:send", ({ roomId, text }) => {
