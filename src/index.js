@@ -5485,6 +5485,26 @@ socket.emit("rooms:list", roomList());
       }
     } catch {}
 
+    // V478L_COUNCIL_DUAL_SIGNAL_FANOUT_SAFE:
+    // إذا فشل توجيه offer المباشر، ابثه لكل الموجودين في المجلس ما عدا المرسل.
+    // هذا يحل حالة: المتكلم يرسل offer لكن المستمع لا يرد answer.
+    if (!sent && eventName === "voiceCountry:webrtc:offer") {
+      try {
+        for (const [sid, row] of voiceCountrySocketIndexV475F2.entries()) {
+          const rowUserIdV478L = String(row?.userId || "");
+          if (
+            row &&
+            rowUserIdV478L &&
+            rowUserIdV478L !== fromUserId &&
+            normalizeVoiceCountryCodeV475B(row.code || "") === safeCode
+          ) {
+            io.to(String(sid)).emit(eventName, { ...packet, toUserId: rowUserIdV478L, fanoutV478L: true });
+            sent++;
+          }
+        }
+      } catch {}
+    }
+
     if (!sent) {
       socket.emit("voiceCountry:notice", { ok: false, message: "تعذر الوصول للطرف الآخر صوتيًا" });
       return false;
@@ -6444,6 +6464,25 @@ socket.emit("rooms:list", roomList());
         }
       }
     } catch {}
+
+    // V478L_COUNCIL_GAME_ENGINE_FANOUT_SAFE:
+    // إذا لم يصل offer عبر target، ابثه لكل أعضاء المجلس. answer/ice تبقى موجهة.
+    if (!sent && eventName === "voice:offer") {
+      try {
+        for (const [sid, row] of voiceCountrySocketIndexV475F2.entries()) {
+          const rowUserIdV478L = String(row?.userId || "");
+          if (
+            row &&
+            rowUserIdV478L &&
+            rowUserIdV478L !== fromUserId &&
+            normalizeVoiceCountryCodeV475B(row.code || "") === safeCode
+          ) {
+            io.to(String(sid)).emit(eventName, { ...packet, toUserId: rowUserIdV478L, fanoutV478L: true });
+            sent++;
+          }
+        }
+      } catch {}
+    }
 
     return sent > 0;
   }
