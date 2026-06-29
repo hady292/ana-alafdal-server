@@ -5445,7 +5445,9 @@ socket.emit("rooms:list", roomList());
 
     let jsonLen = 0;
     try { jsonLen = JSON.stringify(payload || {}).length; } catch { jsonLen = 999999; }
-    if (jsonLen > 12000) {
+    // V478F_COUNTRY_LIVE_DIRECT_SIGNAL_SAFE:
+    // المجلس الصوتي لايف مثل الألعاب: WebRTC SDP/ICE قد يكون أكبر من 12000، فلا نسقط offer/answer الحقيقي.
+    if (jsonLen > 250000) {
       socket.emit("voiceCountry:notice", { ok: false, message: "إشارة الصوت كبيرة جدًا" });
       return false;
     }
@@ -5485,13 +5487,13 @@ socket.emit("rooms:list", roomList());
   }
 
   socket.on("voiceCountry:webrtc:offer", ({ code, toUserId, offer } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
-    if (socketCooldownV416A(socket, "voice_country_webrtc_offer_v476b", 500)) return;
+    if (false && socketCooldownV416A(socket, "voice_country_webrtc_offer_v476b", 500)) return; // V478F_COUNTRY_LIVE_DIRECT_SIGNAL_SAFE
     if (!offer) return socket.emit("voiceCountry:notice", { ok: false, message: "عرض الصوت غير صحيح" });
     emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:offer", { code, offer }, toUserId);
   });
 
   socket.on("voiceCountry:webrtc:answer", ({ code, toUserId, answer } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
-    if (socketCooldownV416A(socket, "voice_country_webrtc_answer_v476b", 500)) return;
+    if (false && socketCooldownV416A(socket, "voice_country_webrtc_answer_v476b", 500)) return; // V478F_COUNTRY_LIVE_DIRECT_SIGNAL_SAFE
     if (!answer) return socket.emit("voiceCountry:notice", { ok: false, message: "رد الصوت غير صحيح" });
     emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:answer", { code, answer }, toUserId);
   });
