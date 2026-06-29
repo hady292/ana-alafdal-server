@@ -5311,7 +5311,14 @@ socket.emit("rooms:list", roomList());
     socket.emit("voiceCountry:joined", makeVoiceCountryStateV475B(safeCode));
     socket.emit("voiceCountry:messages", { code: safeCode, messages: getVisibleVoiceCountryMessagesV475G7DR3(safeCode).slice(-VOICE_COUNTRY_MAX_MESSAGES_V475C) });
     socket.emit("voiceCountry:mutes", { code: safeCode, mutes: getVoiceCountryMutesForUserV475F1(socket.user?.id, safeCode) }); // V475F1_COUNTRY_ROOM_PERSIST_REPORTS_MUTES_SAFE
-    setVoiceCountryVoiceStateV475E1(socket, safeCode, { muted: true, speaking: false }); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
+    // V478J_COUNCIL_KEEP_LIVE_MIC_ON_RESYNC_SAFE:
+    // join/resync لا يجوز أن يطفئ مايك لاعب يتكلم أصلًا. كان يعيد muted=true ويقتل WebRTC.
+    const existingVoiceV478J = getVoiceCountryVoiceMapV475E1(safeCode).get(String(socket.user.id || ""));
+    if (existingVoiceV478J && existingVoiceV478J.muted === false) {
+      setVoiceCountryVoiceStateV475E1(socket, safeCode, { muted: false, speaking: true });
+    } else {
+      setVoiceCountryVoiceStateV475E1(socket, safeCode, { muted: true, speaking: false });
+    }
     socket.emit("voiceCountry:voiceStates", { code: safeCode, states: makeVoiceCountryVoiceStatesV475E1(safeCode) }); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
     emitVoiceCountryModerationStateV476J(safeCode, socket); // V476J_R6C_EMIT_MOD_STATE_ON_JOIN
     emitVoiceCountryVoiceStatesV475E1(safeCode); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE // V475C_COUNTRY_ROOM_TEXT_CHAT_SAFE
@@ -5367,7 +5374,7 @@ socket.emit("rooms:list", roomList());
     io.to(`voiceCountry:${safeCode}`).emit("voiceCountry:message", msg);
   });
   socket.on("voiceCountry:voiceState", ({ code, muted, speaking } = {}) => { // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE // V476D1_R2_COUNTRY_SPEAKER_LIMIT_QUEUE_SERVER_SAFE
-    if (socketCooldownV416A(socket, "voice_country_voice_state_v475e1", 500)) return;
+    if (false && socketCooldownV416A(socket, "voice_country_voice_state_v475e1", 500)) return; // V478J_COUNCIL_KEEP_LIVE_MIC_ON_RESYNC_SAFE
 
     const safeCode = normalizeVoiceCountryCodeV475B(code || socket.voiceCountryCodeV475B || "");
     if (!safeCode || String(socket.voiceCountryCodeV475B || "") !== safeCode) {
