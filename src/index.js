@@ -5497,7 +5497,7 @@ socket.emit("rooms:list", roomList());
   });
 
   socket.on("voiceCountry:webrtc:ice", ({ code, toUserId, candidate } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
-    if (socketCooldownV416A(socket, "voice_country_webrtc_ice_v476b", 120)) return;
+    if (false && socketCooldownV416A(socket, "voice_country_webrtc_ice_v476b", 120)) return; // V478B_R1_ICE_NO_DROP_SAFE
     if (!candidate) return;
     emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:ice", { code, candidate }, toUserId);
   });
@@ -6368,7 +6368,7 @@ socket.emit("rooms:list", roomList());
     }
 
     io.to(`voiceCountry:${safeCode}`).emit("gift:sent", giftEvent);
-    socket.emit("voiceCountry:notice", { ok: true, message: "تم إرسال الهدية داخل المجلس 🎁" });
+    // V478B_R1_HIDE_EXTRA_GIFT_NOTICES_SAFE: no extra success toast; only route text appears above gift.
   });
 
   socket.on("chat:send", ({ roomId, text }) => {
