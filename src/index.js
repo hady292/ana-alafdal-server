@@ -6403,25 +6403,105 @@ socket.emit("rooms:list", roomList());
 
   // V137O_LIVE_MIC_ALL_GAMES_MESH_SAFE:
   // السيرفر لا يسجل ولا يخزن الصوت. هو فقط قناة إشارات WebRTC داخل نفس الغرفة، مع توجيه مخصص لكل لاعب في غرف 2/4.
+  function normalizeVoiceCountryLiveRoomIdV478K(roomId) { // V478K_COUNCIL_USE_GAME_LIVE_ENGINE_SAFE
+    const raw = String(roomId || "").trim();
+    if (!raw.startsWith("voiceCountry:")) return "";
+    return normalizeVoiceCountryCodeV475B(raw.replace(/^voiceCountry:/, ""));
+  }
+
+  function emitVoiceCountryLiveEngineSignalV478K(socket, eventName, roomId, payload = {}, toUserId) { // V478K_COUNCIL_USE_GAME_LIVE_ENGINE_SAFE
+    const safeCode = normalizeVoiceCountryLiveRoomIdV478K(roomId);
+    const joinedCode = normalizeVoiceCountryCodeV475B(socket?.voiceCountryCodeV475B || "");
+    if (!safeCode || !joinedCode || safeCode !== joinedCode) return false;
+
+    const fromUserId = String(socket?.user?.id || "");
+    const targetUserId = String(toUserId || payload?.toUserId || "");
+    if (!fromUserId || !targetUserId || fromUserId === targetUserId) return false;
+
+    const map = getVoiceCountryMapV475B(safeCode);
+    if (!map || !map.has(fromUserId) || !map.has(targetUserId)) return false;
+
+    const fromParticipant = map.get(fromUserId) || {};
+    const packet = {
+      roomId: `voiceCountry:${safeCode}`,
+      userId: fromUserId,
+      username: String(fromParticipant?.username || socket?.user?.username || "لاعب").slice(0, 60),
+      toUserId: targetUserId,
+      at: Date.now(),
+      ...payload
+    };
+
+    let sent = 0;
+    try {
+      for (const [sid, row] of voiceCountrySocketIndexV475F2.entries()) {
+        if (
+          row &&
+          String(row.userId || "") === targetUserId &&
+          normalizeVoiceCountryCodeV475B(row.code || "") === safeCode
+        ) {
+          io.to(String(sid)).emit(eventName, packet);
+          sent++;
+        }
+      }
+    } catch {}
+
+    return sent > 0;
+  }
+
   socket.on("voice:offer", ({ roomId, toUserId, offer }) => {
+    const safeCouncilCodeV478K = normalizeVoiceCountryLiveRoomIdV478K(roomId);
+    if (safeCouncilCodeV478K) {
+      if (!offer) return;
+      emitVoiceCountryLiveEngineSignalV478K(socket, "voice:offer", roomId, { offer }, toUserId);
+      return;
+    }
+
     const room = rooms.get(roomId);
     if (!room || !offer) return;
     emitVoiceSignalV137O(socket, room, "voice:offer", { offer }, toUserId);
   });
 
   socket.on("voice:answer", ({ roomId, toUserId, answer }) => {
+    const safeCouncilCodeV478K = normalizeVoiceCountryLiveRoomIdV478K(roomId);
+    if (safeCouncilCodeV478K) {
+      if (!answer) return;
+      emitVoiceCountryLiveEngineSignalV478K(socket, "voice:answer", roomId, { answer }, toUserId);
+      return;
+    }
+
     const room = rooms.get(roomId);
     if (!room || !answer) return;
     emitVoiceSignalV137O(socket, room, "voice:answer", { answer }, toUserId);
   });
 
   socket.on("voice:ice", ({ roomId, toUserId, candidate }) => {
+    const safeCouncilCodeV478K = normalizeVoiceCountryLiveRoomIdV478K(roomId);
+    if (safeCouncilCodeV478K) {
+      if (!candidate) return;
+      emitVoiceCountryLiveEngineSignalV478K(socket, "voice:ice", roomId, { candidate }, toUserId);
+      return;
+    }
+
     const room = rooms.get(roomId);
     if (!room || !candidate) return;
     emitVoiceSignalV137O(socket, room, "voice:ice", { candidate }, toUserId);
   });
 
   socket.on("voice:mute", ({ roomId, muted }) => {
+    const safeCouncilCodeV478K = normalizeVoiceCountryLiveRoomIdV478K(roomId);
+    if (safeCouncilCodeV478K) {
+      const safeCode = normalizeVoiceCountryLiveRoomIdV478K(roomId);
+      setVoiceCountryVoiceStateV475E1(socket, safeCode, { muted: !!muted, speaking: !muted });
+      emitVoiceCountryVoiceStatesV475E1(safeCode);
+      io.to(`voiceCountry:${safeCode}`).emit("voice:muted", {
+        roomId: `voiceCountry:${safeCode}`,
+        userId: String(socket?.user?.id || ""),
+        username: String(socket?.user?.username || "لاعب"),
+        muted: !!muted
+      });
+      return;
+    }
+
     const room = rooms.get(roomId);
     if (!room) return;
     emitVoiceSignalV137O(socket, room, "voice:muted", { muted: !!muted }, null);
