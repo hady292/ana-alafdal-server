@@ -20,6 +20,8 @@ const http = require("http");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { google } = require("googleapis"); // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
+const crypto = require("crypto"); // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
 const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
@@ -2204,68 +2206,288 @@ function canSendSubscriptionGiftV454(user, giftType) {
   return { ok: false, code: "VIP_GIFT_PLAN_REQUIRED", message: "خطة الاشتراك الحالية لا تسمح بإرسال الهدايا." };
 }
 
-app.post("/vip/activate", requireAuth, economyRateLimitV416A, (req, res) => {
+
+
+// V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE: Google Play Billing subscription verification helpers.
+const GOOGLE_PLAY_PACKAGE_NAME_V479B = process.env.GOOGLE_PLAY_PACKAGE_NAME || "com.hadiapps.anaalafdal";
+
+const GOOGLE_PLAY_VIP_PLANS_V479B = {
+  gifts_unlimited_1999: {
+    planId: "gifts_unlimited_1999",
+    productId: "viproyalmonthly",
+    level: 3,
+    title: "VIP الملكي الكامل",
+    vipGiftAccess: "unlimited",
+    vipAdFree: true
+  },
+  gifts_one_each_999: {
+    planId: "gifts_one_each_999",
+    productId: "vipgiftsmonthly",
+    level: 2,
+    title: "VIP هدايا أساسي",
+    vipGiftAccess: "one_each",
+    vipAdFree: true
+  },
+  no_ads_399: {
+    planId: "no_ads_399",
+    productId: "noadsmonthly",
+    level: 1,
+    title: "بدون إعلانات",
+    vipGiftAccess: "none",
+    vipAdFree: true
+  }
+}; // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
+
+function getPublicUserV479B(user) {
+  return typeof publicUser === "function" ? publicUser(user) : user;
+} // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
+
+function hashPurchaseTokenV479B(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+} // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
+
+function readGoogleServiceAccountCredentialsV479B() {
+  const base64 = String(process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 || "").trim();
+  const json = String(process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON || "").trim();
+
+  if (base64) {
+    const raw = Buffer.from(base64, "base64").toString("utf8");
+    return JSON.parse(raw);
+  }
+
+  if (json) {
+    return JSON.parse(json);
+  }
+
+  return null;
+} // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
+
+function getGooglePlayAuthV479B() {
+  const scopes = ["https://www.googleapis.com/auth/androidpublisher"];
+  const credentials = readGoogleServiceAccountCredentialsV479B();
+
+  if (credentials) {
+    return new google.auth.GoogleAuth({ credentials, scopes });
+  }
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return new google.auth.GoogleAuth({ scopes });
+  }
+
+  const err = new Error("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64_MISSING");
+  err.code = "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64_MISSING";
+  throw err;
+} // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
+
+async function verifyGooglePlaySubscriptionV479B({ purchaseToken, expectedProductId }) {
+  const token = String(purchaseToken || "").trim();
+  const productId = String(expectedProductId || "").trim();
+
+  if (!token) {
+    return { ok: false, code: "PURCHASE_TOKEN_MISSING", message: "رمز الشراء من Google Play غير موجود." };
+  }
+
+  if (!productId) {
+    return { ok: false, code: "PRODUCT_ID_MISSING", message: "معرف المنتج غير موجود." };
+  }
+
+  const auth = getGooglePlayAuthV479B();
+  const androidpublisher = google.androidpublisher({ version: "v3", auth });
+
+  const result = await androidpublisher.purchases.subscriptionsv2.get({
+    packageName: GOOGLE_PLAY_PACKAGE_NAME_V479B,
+    token
+  });
+
+  const data = result.data || {};
+  const state = String(data.subscriptionState || "");
+  const lineItems = Array.isArray(data.lineItems) ? data.lineItems : [];
+  const productIds = lineItems.map((item) => String(item.productId || "")).filter(Boolean);
+
+  if (!productIds.includes(productId)) {
+    return {
+      ok: false,
+      code: "PRODUCT_MISMATCH",
+      message: "منتج Google Play لا يطابق خطة VIP المطلوبة.",
+      state,
+      productIds
+    };
+  }
+
+  const expiryMsList = lineItems
+    .map((item) => Date.parse(String(item.expiryTime || "")))
+    .filter((n) => Number.isFinite(n));
+
+  const expiryMs = expiryMsList.length ? Math.max(...expiryMsList) : 0;
+  const expiresAt = expiryMs ? new Date(expiryMs).toISOString() : "";
+
+  const activeStates = new Set([
+    "SUBSCRIPTION_STATE_ACTIVE",
+    "SUBSCRIPTION_STATE_IN_GRACE_PERIOD"
+  ]);
+
+  const active = activeStates.has(state) && expiryMs > Date.now();
+
+  if (!active) {
+    return {
+      ok: false,
+      code: "SUBSCRIPTION_NOT_ACTIVE",
+      message: "الاشتراك غير فعال أو منتهي في Google Play.",
+      state,
+      productIds,
+      expiresAt
+    };
+  }
+
+  const ackState = String(data.acknowledgementState || "");
+  if (ackState === "ACKNOWLEDGEMENT_STATE_PENDING") {
+    try {
+      await androidpublisher.purchases.subscriptions.acknowledge({
+        packageName: GOOGLE_PLAY_PACKAGE_NAME_V479B,
+        subscriptionId: productId,
+        token,
+        requestBody: {}
+      });
+    } catch (err) {
+      console.warn("V479B_ACK_WARNING:", err && err.message ? err.message : err);
+    }
+  }
+
+  return {
+    ok: true,
+    state,
+    productIds,
+    expiresAt,
+    raw: data
+  };
+} // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
+
+
+app.post("/vip/activate", requireAuth, economyRateLimitV416A, async (req, res) => {
   const db = readDb();
-  const user = db.users.find((u) => u.id === req.user.id);
+  const user = db.users.find((u) => String(u.id) === String(req.user.id));
   if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
 
-  const requestedPlanId = normalizeVipPlanIdV454(req.body?.planId || req.body?.plan || req.body?.productId || req.body?.level);
-  const plan = VIP_PLANS_V454[requestedPlanId];
+  const planId = String(req.body && req.body.planId ? req.body.planId : "").trim();
+  const bodyProductId = String(
+    (req.body && (req.body.googleProductId || req.body.productId)) || ""
+  ).trim();
+  const purchaseToken = String(
+    (req.body && (req.body.purchaseToken || req.body.token || req.body.transactionReceipt)) || ""
+  ).trim();
+
+  const plan = GOOGLE_PLAY_VIP_PLANS_V479B[planId];
   if (!plan) {
     return res.status(400).json({
       error: "INVALID_VIP_PLAN",
-      message: "خطة الاشتراك غير صحيحة.",
-      plans: Object.values(VIP_PLANS_V454),
-      user: publicUser(user)
+      message: "خطة VIP غير صحيحة.",
+      user: getPublicUserV479B(user)
     });
   }
 
-  const allowInternalActivationV454 = String(process.env.ALLOW_INTERNAL_VIP_ACTIVATE_V454 || "").toLowerCase() === "true";
-  if (!allowInternalActivationV454) {
+  if (!purchaseToken) {
     return res.status(402).json({
       error: "GOOGLE_PLAY_BILLING_REQUIRED",
-      message: "هذه الخطط شهرية بالدولار وتحتاج ربط Google Play Billing قبل التفعيل الحقيقي. لم يتم خصم كوينز.",
-      plan,
-      user: publicUser(user)
+      message: "التفعيل الحقيقي يحتاج شراء من Google Play. افتح التطبيق من نسخة Google Play واضغط اختيار الخطة.",
+      user: getPublicUserV479B(user)
     });
   }
 
-  const wasActive = isVipSubscriptionActiveV415A(user);
-  const nextExpiresAt = addVipDaysV415A(user.vipExpiresAt, VIP_SUBSCRIPTION_DAYS_V415A);
+  if (bodyProductId && bodyProductId !== plan.productId) {
+    return res.status(400).json({
+      error: "PRODUCT_PLAN_MISMATCH",
+      message: "معرف المنتج لا يطابق خطة VIP المطلوبة.",
+      user: getPublicUserV479B(user)
+    });
+  }
 
-  user.vipLevel = Math.max(Number(user.vipLevel || 0), Number(plan.level || 1));
-  user.vipActivatedAt = user.vipActivatedAt || new Date().toISOString();
-  user.vipSubscriptionStatus = "active";
-  user.vipPlan = plan.planId;
-  user.vipProductId = plan.productId;
-  user.vipExpiresAt = nextExpiresAt;
-  user.vipGiftUsageV454 = {};
-  user.walletLog = Array.isArray(user.walletLog) ? user.walletLog : [];
-  user.walletLog.unshift({
-    type: "vip_subscription_internal_test_v454",
-    plan: plan.planId,
-    productId: plan.productId,
-    priceUsd: plan.priceUsd,
-    coins: 0,
-    days: VIP_SUBSCRIPTION_DAYS_V415A,
-    expiresAt: nextExpiresAt,
-    at: new Date().toISOString()
-  });
-  user.walletLog = user.walletLog.slice(0, 30);
+  try {
+    const verified = await verifyGooglePlaySubscriptionV479B({
+      purchaseToken,
+      expectedProductId: plan.productId
+    });
 
-  writeDb(db);
-  emitUserUpdateV136IK(user.id);
+    if (!verified.ok) {
+      return res.status(402).json({
+        error: verified.code || "GOOGLE_PLAY_VERIFY_FAILED",
+        message: verified.message || "تعذر التحقق من اشتراك Google Play.",
+        state: verified.state || "",
+        user: getPublicUserV479B(user)
+      });
+    }
 
-  res.json({
-    ok: true,
-    type: "vip_subscription_v454_internal_test",
-    plan,
-    days: VIP_SUBSCRIPTION_DAYS_V415A,
-    expiresAt: nextExpiresAt,
-    message: wasActive ? "تم تمديد خطة الاشتراك 30 يوم ✅" : "تم تفعيل خطة الاشتراك 30 يوم ✅",
-    user: publicUser(user)
-  });
-});
+    db.googlePlayPurchasesV479B = Array.isArray(db.googlePlayPurchasesV479B) ? db.googlePlayPurchasesV479B : [];
+    const tokenHash = hashPurchaseTokenV479B(purchaseToken);
+    const existing = db.googlePlayPurchasesV479B.find((p) => String(p.tokenHash || "") === tokenHash);
+
+    if (existing && String(existing.userId || "") !== String(user.id)) {
+      return res.status(409).json({
+        error: "PURCHASE_TOKEN_ALREADY_BOUND",
+        message: "هذا الاشتراك مربوط بحساب آخر.",
+        user: getPublicUserV479B(user)
+      });
+    }
+
+    const now = new Date().toISOString();
+    const expiresAt = verified.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    user.vipLevel = Number(plan.level || 0);
+    user.vipActivatedAt = now;
+    user.vipExpiresAt = expiresAt;
+    user.vipSubscriptionStatus = "active";
+    user.vipPlan = plan.planId;
+    user.vipProductId = plan.productId;
+    user.vipAdFree = !!plan.vipAdFree;
+    user.vipGiftAccess = plan.vipGiftAccess;
+    user.vipPurchaseSource = "google_play";
+    user.vipLastVerifiedAt = now;
+
+    if (!user.vipGiftUsageV454 || typeof user.vipGiftUsageV454 !== "object") {
+      user.vipGiftUsageV454 = {};
+    }
+
+    const purchaseRecord = {
+      tokenHash,
+      userId: String(user.id),
+      productId: plan.productId,
+      planId: plan.planId,
+      subscriptionState: verified.state || "",
+      expiresAt,
+      updatedAt: now,
+      createdAt: existing && existing.createdAt ? existing.createdAt : now
+    };
+
+    if (existing) {
+      Object.assign(existing, purchaseRecord);
+    } else {
+      db.googlePlayPurchasesV479B.push(purchaseRecord);
+    }
+
+    writeDb(db);
+
+    return res.json({
+      ok: true,
+      message: "تم تفعيل " + plan.title + " عبر Google Play ✅",
+      planId: plan.planId,
+      productId: plan.productId,
+      expiresAt,
+      user: getPublicUserV479B(user)
+    });
+  } catch (err) {
+    console.error("V479B_GOOGLE_PLAY_VERIFY_ERROR:", err && err.message ? err.message : err);
+
+    const code = String(err && err.code ? err.code : "");
+    const missingEnv = code === "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64_MISSING";
+
+    return res.status(502).json({
+      error: missingEnv ? "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64_MISSING" : "GOOGLE_PLAY_VERIFY_ERROR",
+      message: missingEnv
+        ? "السيرفر يحتاج إضافة GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 في Render قبل تفعيل الاشتراكات."
+        : "تعذر التحقق من Google Play الآن.",
+      user: getPublicUserV479B(user)
+    });
+  }
+}); // V479B_GOOGLE_PLAY_SERVER_VERIFY_SAFE
 
 app.post("/vip/claim-daily-bonus", requireAuth, economyRateLimitV416A, (req, res) => {
   const db = readDb();
