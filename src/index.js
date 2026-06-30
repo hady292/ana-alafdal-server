@@ -4142,7 +4142,7 @@ function collectRoomWagerV136IK(room) {
   const db = readDb();
 
   for (const player of realPlayers) {
-    const user = db.users.find((u) => u.id === player.id);
+    const user = db.users.find((u) => String(u.id) === String(player.id));
     const coins = Number(user?.coins || 0);
     if (!user || coins < amount) {
       if (player.socketId) io.to(player.socketId).emit("error:message", `رصيدك لا يكفي للتحدي عملات ${amount} كوينز`);
@@ -4154,7 +4154,7 @@ function collectRoomWagerV136IK(room) {
   room.wager.amount = amount;
   room.wager.paid = room.wager.paid || {};
   for (const player of realPlayers) {
-    const user = db.users.find((u) => u.id === player.id);
+    const user = db.users.find((u) => String(u.id) === String(player.id));
     user.coins = Math.max(0, Number(user.coins || 0) - amount);
     room.wager.paid[player.id] = amount;
   }
@@ -4198,7 +4198,7 @@ function awardRoomWagerV136IK(room, winnerId, db) {
   let distributed = 0;
   for (let i = 0; i < receivers.length; i++) {
     const player = receivers[i];
-    const user = db.users.find((u) => u.id === player.id);
+    const user = db.users.find((u) => String(u.id) === String(player.id));
     if (!user) continue;
     const add = i === receivers.length - 1 ? (pot - distributed) : share;
     user.coins = Number(user.coins || 0) + add;
@@ -5903,14 +5903,31 @@ socket.emit("rooms:list", roomList());
 
     const roomMaxPlayers = Number(maxPlayers) === 4 ? 4 : 2;
     const safeDominoMode = game === "domino" && roomMaxPlayers === 4 && String(dominoMode) === "teams" ? "teams" : "classic";
-    const safeWagerV136IK = normalizeWagerV136IK(wager);
+    // V478X_FIX_WAGER_BALANCE_SERVER_AUTH_SAFE:
+    // 4 لاعبين المجانية لا يجب أن تتحول إلى wager=1000.
+    const isFourPlayerFreeV478X =
+      (game === "domino" && roomMaxPlayers === 4 && safeDominoMode === "teams") ||
+      ((game === "carrom" || game === "billiards") && roomMaxPlayers === 4);
+    const safeWagerV136IK = isFourPlayerFreeV478X ? 0 : normalizeWagerV136IK(wager);
 
     {
       const db = readDb();
-      const creator = db.users.find((u) => u.id === socket.user.id);
-      if (!creator || Number(creator.coins || 0) < safeWagerV136IK) {
-        replyCreateV221({ ok: false, error: `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز` });
-        return socket.emit("error:message", `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز`);
+      const creator = db.users.find((u) => String(u.id) === String(socket.user.id));
+      if (!creator) {
+        replyCreateV221({ ok: false, error: "جلسة الحساب غير صالحة، سجّل الدخول من جديد" });
+        return socket.emit("error:message", "جلسة الحساب غير صالحة، سجّل الدخول من جديد");
+      }
+      const creatorCoinsV478X = Math.max(0, Math.floor(Number(creator.coins || 0) || 0));
+      if (safeWagerV136IK > 0 && creatorCoinsV478X < safeWagerV136IK) {
+        try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
+        replyCreateV221({
+          ok: false,
+          error: `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز - رصيدك الحالي ${creatorCoinsV478X} كوينز`,
+          code: "INSUFFICIENT_COINS_V478X",
+          requiredCoins: safeWagerV136IK,
+          serverCoins: creatorCoinsV478X
+        });
+        return socket.emit("error:message", `رصيدك لا يكفي لإنشاء تحدي عملات ${safeWagerV136IK} كوينز - رصيدك الحالي ${creatorCoinsV478X} كوينز`);
       }
     }
 
@@ -6057,9 +6074,15 @@ socket.emit("rooms:list", roomList());
 
     if (!existing && room.wager && room.wager.amount > 0 && !isBotIdV136IK(socket.user.id)) {
       const db = readDb();
-      const user = db.users.find((u) => u.id === socket.user.id);
-      if (!user || Number(user.coins || 0) < Number(room.wager.amount || 0)) {
-        return socket.emit("error:message", `رصيدك لا يكفي لدخول تحدي عملات ${room.wager.amount} كوينز`);
+      const user = db.users.find((u) => String(u.id) === String(socket.user.id));
+      if (!user) {
+        return socket.emit("error:message", "جلسة الحساب غير صالحة، سجّل الدخول من جديد");
+      }
+      const joinCoinsV478X = Math.max(0, Math.floor(Number(user.coins || 0) || 0));
+      const joinAmountV478X = Math.max(0, Math.floor(Number(room.wager.amount || 0) || 0));
+      if (joinAmountV478X > 0 && joinCoinsV478X < joinAmountV478X) {
+        try { emitUserUpdateV136IK(String(socket.user.id)); } catch {}
+        return socket.emit("error:message", `رصيدك لا يكفي لدخول تحدي عملات ${joinAmountV478X} كوينز - رصيدك الحالي ${joinCoinsV478X} كوينز`);
       }
     }
 
@@ -6938,3 +6961,5 @@ server.listen(PORT, "0.0.0.0", () => {
 
 
 // V285_BILLIARDS_REFERENCE_EXACT_VISUAL_RULES_READY: billiards beta turn timer uses 25s; carrom keeps V233 15s.
+
+// V478X_FIX_WAGER_BALANCE_SERVER_AUTH_SAFE: strict server balance check + free 4p wager zero + String id compare
