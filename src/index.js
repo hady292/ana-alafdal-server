@@ -245,8 +245,8 @@ app.get("/app-config", (req, res) => {
       enabled: true,
       type: "ready",
       badgeText: "جديد",
-      title: "✨ تطوير جديد",
-      message: "تم تجهيز تحسينات جديدة: رفع زر الهدايا فوق أزرار الهاتف، وربط إعدادات التطوير بزر تحديث البيانات.",
+      title: "✨ تحديث جديد",
+      message: "تم تحسين تجربة التطبيق.", // V478R3_SERVER_PLAYER_NOISE_CLEANUP_SAFE
       showBadgeOnRefreshButton: true
     },
     features: {
@@ -5455,7 +5455,7 @@ socket.emit("rooms:list", roomList());
     // V478F_COUNTRY_LIVE_DIRECT_SIGNAL_SAFE:
     // المجلس الصوتي لايف مثل الألعاب: WebRTC SDP/ICE قد يكون أكبر من 12000، فلا نسقط offer/answer الحقيقي.
     if (jsonLen > 250000) {
-      socket.emit("voiceCountry:notice", { ok: false, message: "إشارة الصوت كبيرة جدًا" });
+      socket.emit("voiceCountry:notice", { ok: false, message: "تعذر توصيل الصوت، حاول مرة أخرى" /* V478R3_SERVER_PLAYER_NOISE_CLEANUP_SAFE */ });
       return false;
     }
 
@@ -5506,7 +5506,7 @@ socket.emit("rooms:list", roomList());
     }
 
     if (!sent) {
-      socket.emit("voiceCountry:notice", { ok: false, message: "تعذر الوصول للطرف الآخر صوتيًا" });
+      socket.emit("voiceCountry:notice", { ok: false, message: "تعذر توصيل الصوت، حاول مرة أخرى" /* V478R3_SERVER_PLAYER_NOISE_CLEANUP_SAFE */ });
       return false;
     }
 
@@ -5515,13 +5515,13 @@ socket.emit("rooms:list", roomList());
 
   socket.on("voiceCountry:webrtc:offer", ({ code, toUserId, offer } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
     if (false && socketCooldownV416A(socket, "voice_country_webrtc_offer_v476b", 500)) return; // V478F_COUNTRY_LIVE_DIRECT_SIGNAL_SAFE
-    if (!offer) return socket.emit("voiceCountry:notice", { ok: false, message: "عرض الصوت غير صحيح" });
+    if (!offer) return socket.emit("voiceCountry:notice", { ok: false, message: "تعذر توصيل الصوت، حاول مرة أخرى" /* V478R3_SERVER_PLAYER_NOISE_CLEANUP_SAFE */ });
     emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:offer", { code, offer }, toUserId);
   });
 
   socket.on("voiceCountry:webrtc:answer", ({ code, toUserId, answer } = {}) => { // V476B_COUNTRY_WEBRTC_SIGNALING_SERVER_SAFE
     if (false && socketCooldownV416A(socket, "voice_country_webrtc_answer_v476b", 500)) return; // V478F_COUNTRY_LIVE_DIRECT_SIGNAL_SAFE
-    if (!answer) return socket.emit("voiceCountry:notice", { ok: false, message: "رد الصوت غير صحيح" });
+    if (!answer) return socket.emit("voiceCountry:notice", { ok: false, message: "تعذر توصيل الصوت، حاول مرة أخرى" /* V478R3_SERVER_PLAYER_NOISE_CLEANUP_SAFE */ });
     emitVoiceCountryWebRtcSignalV476B(socket, "voiceCountry:webrtc:answer", { code, answer }, toUserId);
   });
 
