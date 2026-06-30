@@ -2712,7 +2712,7 @@ app.post("/posts", requireAuth, socialRateLimitV416A, (req, res) => {
   const me = db.users.find((u) => u.id === req.user.id);
   if (!me) return res.status(404).json({ error: "USER_NOT_FOUND" });
 
-  const text = String(req.body.text || "").trim().slice(0, 500);
+  const text = String(req.body.text || "").trim().slice(0, 10000); // V478Z2A_LONG_POST_TEXT_SAFE_SERVER
   const rawMediaUrlV152 = String(req.body.mediaUrl || "").trim().slice(0, 900);
   const rawMediaTypeV152 = String(req.body.mediaType || "").trim();
   const safeMediaTypeV152 = rawMediaUrlV152 && ["image", "video"].includes(rawMediaTypeV152) ? rawMediaTypeV152 : "";
