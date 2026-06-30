@@ -2136,7 +2136,52 @@ function sanitizeGiftUsageV454(value) {
   return out;
 }
 
+
+function isOwnerGiftBypassV478S(user) { // V478S_OWNER_GIFTS_BYPASS_VIP_SAFE
+  try {
+    if (!user) return false;
+    const email = String(user.email || "").trim().toLowerCase();
+    const username = String(user.username || user.name || "").trim().toLowerCase();
+    const role = String(user.role || "").trim().toLowerCase();
+
+    if (user.owner === true || user.isOwner === true || user.founder === true || user.isFounder === true) return true;
+    if (user.admin === true || user.isAdmin === true) return true;
+    if (role.includes("owner") || role.includes("founder") || role.includes("admin")) return true;
+
+    // صاحب التطبيق الحالي
+    if (email === "hadyalhsamy6@gmail.com") return true;
+    if (username === "hady22333") return true;
+    if (username === "hadyalhsamy6") return true;
+
+    if (typeof isSupportAdminV388 === "function" && isSupportAdminV388(user)) return true;
+  } catch {}
+  return false;
+}
+
+function makeOwnerGiftPlanV478S() { // V478S_OWNER_GIFTS_BYPASS_VIP_SAFE
+  return {
+    planId: "owner_free_gifts_v478s",
+    title: "صاحب التطبيق",
+    giftAccess: "unlimited",
+    priceLabel: "Owner"
+  };
+}
+
 function canSendSubscriptionGiftV454(user, giftType) {
+  if (!VIP_GIFT_TYPES_V454[giftType]) {
+    return { ok: false, code: "GIFT_NOT_READY", message: "هذه الهدية غير متاحة." };
+  }
+
+  if (isOwnerGiftBypassV478S(user)) { // V478S_OWNER_GIFTS_BYPASS_VIP_SAFE
+    return {
+      ok: true,
+      code: "OWNER_GIFT_BYPASS",
+      ownerBypass: true,
+      plan: makeOwnerGiftPlanV478S(),
+      usageAfter: null
+    };
+  }
+
   const plan = getVipPlanV454(user);
   if (!plan || plan.giftAccess === "none") {
     return { ok: false, code: "VIP_GIFT_PLAN_REQUIRED", message: "🎁 إرسال الهدايا يحتاج اشتراك الهدايا: فعّل خطة 9.99 أو 19.99." }; // V475G7C3_GIFT_SUBSCRIPTION_NOTICE_CLEAR_SAFE
