@@ -241,6 +241,34 @@ app.get("/app-config", (req, res) => {
     rewardedAdCoins: 1500,
     rewardedDailyLimit: 50,
     rewardedCooldownMinutes: 5,
+    // V480G_R2_REMOTE_KEYS_SERVER_SAFE
+    disableGiftVideos: false,
+    giftVideoMode: "video",
+    useGiftFallbackOnlyOnError: true,
+    forceStopVoiceOnLeave: true,
+    whitePageDarkText: true,
+    hideDebugPanels: true,
+    ownerOnlineCounterEnabled: true,
+    onlineUsersTotal: (() => { try { return connectedUserSocketsV137O.size; } catch { return 0; } })(),
+    onlineSocketsTotal: (() => { try { return io.engine.clientsCount || 0; } catch { return 0; } })(),
+    activeRoomsTotal: (() => { try { return rooms.size || 0; } catch { return 0; } })(),
+    storeNotice: "",
+    subscriptionNotice: "",
+    // V480G_REMOTE_CONTROL_SERVER_KEYS_SAFE
+    disableGiftVideos: false,
+    giftVideoMode: "video",
+    useGiftVideoMp4: true,
+    useGiftFallbackOnlyOnError: true,
+    forceStopVoiceOnLeave: true,
+    whitePageDarkText: true,
+    hideDebugPanels: true,
+    maintenanceMode: false,
+    ownerOnlineCounterEnabled: true,
+    onlineUsersTotal: (() => { try { return connectedUserSocketsV137O.size; } catch { return 0; } })(),
+    onlineSocketsTotal: (() => { try { return io.engine.clientsCount || 0; } catch { return 0; } })(),
+    activeRoomsTotal: (() => { try { return rooms.size || 0; } catch { return 0; } })(),
+    storeNotice: "",
+    subscriptionNotice: "",
     featureFlagsVersion: 2,
     // V434A_REMOTE_UI_CONFIG_READY: إعدادات واجهة يتحكم بها Render ويطبقها زر تحديث البيانات.
     uiConfigVersion: 1,
@@ -1586,7 +1614,7 @@ function getUserMeta(userId) {
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username },
+    { id: user.id, username: user.username, displayName: user.displayName || user.username, playerCode: user.inviteCode || "" },
     JWT_SECRET,
     { expiresIn: "30d" }
   );
@@ -1710,6 +1738,7 @@ app.post("/auth/register", authRateLimitV416A, async (req, res) => {
   if (username.length < 3) {
     return res.status(400).json({ error: "USERNAME_TOO_SHORT" });
   }
+  const displayNameV480G = String(rawUsername || username || "لاعب").trim().slice(0, 32) || username; // V480G_R2_DUPLICATE_DISPLAY_NAME_SAFE
 
   const deviceRecord = db.devices[deviceId] || { userIds: [], createdAt: new Date().toISOString() };
   const activeDeviceUsers = (deviceRecord.userIds || []).filter((id) => db.users.some((u) => u.id === id));
@@ -1718,15 +1747,19 @@ app.post("/auth/register", authRateLimitV416A, async (req, res) => {
     return res.status(429).json({ error: "DEVICE_ACCOUNT_LIMIT" });
   }
 
+  // V480G_R3_DUPLICATE_DISPLAY_NAME_FINAL_SAFE
+  // displayName يسمح بالتكرار، و username الداخلي يصير فريد تلقائيًا.
+  if (db.users.some((u) => String(u.username || "").toLowerCase() === username.toLowerCase())) {
+    username = makeUniqueUsernameV201(db, username);
+  }
+
   const exists = db.users.find((u) => {
-    const sameUsername = String(u.username || "").toLowerCase() === username.toLowerCase();
     const sameEmail = !!email && String(u.email || "").toLowerCase() === email;
     const samePhone = !!phone && normalizePhoneV201(u.phone || u.mobile || "") === phone;
-    return sameUsername || sameEmail || samePhone;
+    return sameEmail || samePhone;
   });
 
   if (exists) {
-    if (String(exists.username || "").toLowerCase() === username.toLowerCase()) return res.status(409).json({ error: "USERNAME_EXISTS" });
     if (email && String(exists.email || "").toLowerCase() === email) return res.status(409).json({ error: "EMAIL_EXISTS" });
     return res.status(409).json({ error: "PHONE_EXISTS" });
   }
@@ -1736,6 +1769,8 @@ app.post("/auth/register", authRateLimitV416A, async (req, res) => {
   const user = {
     id: makeId("user"),
     username,
+    displayName: displayNameV480G,
+    name: displayNameV480G,
     email,
     phone,
     passwordHash,
