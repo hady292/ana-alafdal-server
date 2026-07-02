@@ -222,6 +222,13 @@ app.use("/uploads", express.static(UPLOADS_DIR_V154));
 
 
 // V138_REMOTE_CONFIG_SAFE: تحديث بيانات التطبيق من السيرفر بدون تحديث Google Play
+
+// V480F_APP_ADS_TXT_SAFE: official AdMob app-ads.txt for Ana Alafdal.
+app.get("/app-ads.txt", (req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.send("google.com, pub-6608880133186542, DIRECT, f08c47fec0942fa0\\n");
+});
+
 app.get("/app-config", (req, res) => {
   res.json({
     ok: true,
