@@ -1633,6 +1633,64 @@ function requireAuth(req, res, next) {
   }
 }
 
+// V484A_OWNER_ONLINE_SAFE_START: owner-only live online counter; no sound/games/council/gifts changes.
+function isOwnerUserV484A(userLike) {
+  try {
+    const id = String(userLike?.id || "");
+    const db = readDb();
+    const full = db.users.find((u) => String(u.id) === id) || userLike || {};
+    const email = String(full.email || userLike?.email || "").trim().toLowerCase();
+    const username = String(full.username || userLike?.username || "").trim().toLowerCase();
+    const role = String(full.role || userLike?.role || "").trim().toLowerCase();
+
+    return (
+      full.isAdmin === true ||
+      full.isOwner === true ||
+      role === "owner" ||
+      role === "admin" ||
+      email === "hadyalhsamy6@gmail.com" ||
+      username === "hady22333"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function ownerOnlinePayloadV484A() {
+  let onlineSockets = connectedUserSocketsV137O.size;
+  try {
+    onlineSockets = Number(io.of("/").sockets.size || connectedUserSocketsV137O.size);
+  } catch {}
+
+  return {
+    ok: true,
+    onlineUsers: connectedUserSocketsV137O.size,
+    onlineSockets,
+    updatedAt: new Date().toISOString(),
+    marker: "V484A_OWNER_ONLINE_SAFE"
+  };
+}
+
+function emitOwnerOnlineStatsV484A() {
+  try {
+    const payload = ownerOnlinePayloadV484A();
+    const sockets = io.of("/").sockets;
+    for (const [, s] of sockets) {
+      if (isOwnerUserV484A(s.user)) {
+        s.emit("owner:onlineStats:v484a", payload);
+      }
+    }
+  } catch {}
+}
+
+app.get("/owner/online-stats-v484a", requireAuth, (req, res) => {
+  if (!isOwnerUserV484A(req.user)) {
+    return res.status(403).json({ ok: false, error: "OWNER_ONLY" });
+  }
+  return res.json(ownerOnlinePayloadV484A());
+});
+// V484A_OWNER_ONLINE_SAFE_END
+
 app.get("/", (req, res) => {
   res.json({
     ok: true,
@@ -1887,10 +1945,24 @@ app.post("/invite/link", requireAuth, (req, res) => {
   });
 });
 
+
+function escapeHtmlV485A(value) {
+  return String(value || "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  }[ch] || ch));
+}
+
+// V485A_INVITE_OPEN_APP_OR_STORE_SAFE: if app installed open room link; otherwise fallback to Google Play.
 app.get("/invite", (req, res) => {
   const code = normalizeInviteCodeV138J(req.query.code);
   const game = String(req.query.game || "").trim().slice(0, 30);
   const roomId = String(req.query.room || req.query.roomId || "").trim().slice(0, 80);
+
+  let storeTarget = PLAY_STORE_URL_V138J;
   try {
     const storeUrl = new URL(PLAY_STORE_URL_V138J);
     const refParts = [];
@@ -1898,11 +1970,40 @@ app.get("/invite", (req, res) => {
     if (game) refParts.push(`game=${encodeURIComponent(game)}`);
     if (roomId) refParts.push(`room=${encodeURIComponent(roomId)}`);
     if (refParts.length) storeUrl.searchParams.set("referrer", refParts.join("&"));
-    return res.redirect(302, storeUrl.toString());
-  } catch {
-    return res.redirect(302, PLAY_STORE_URL_V138J);
-  }
+    storeTarget = storeUrl.toString();
+  } catch {}
+
+  const deepParts = [];
+  if (code) deepParts.push(`code=${encodeURIComponent(code)}`);
+  if (game) deepParts.push(`game=${encodeURIComponent(game)}`);
+  if (roomId) deepParts.push(`room=${encodeURIComponent(roomId)}`);
+  const directAppUrl = `anaalafdal://invite${deepParts.length ? "?" + deepParts.join("&") : ""}`;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(`<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>دعوة أنا الأفضل</title>
+<script>
+(function(){
+  var appUrl = ${JSON.stringify("${directAppUrl}")}.replace("${directAppUrl}", ${JSON.stringify(directAppUrl)});
+  var storeUrl = ${JSON.stringify("${storeTarget}")}.replace("${storeTarget}", ${JSON.stringify(storeTarget)});
+  setTimeout(function(){ window.location.replace(storeUrl); }, 1500);
+  window.location.href = appUrl;
+})();
+</script>
+</head>
+<body style="font-family:Arial,sans-serif;background:#12051F;color:white;text-align:center;padding:24px">
+  <h2>جاري فتح أنا الأفضل...</h2>
+  <p>إذا كان التطبيق مثبتًا سيفتح مباشرة، وإذا لم يكن مثبتًا سيتم تحويلك إلى Google Play.</p>
+  <p><a style="color:#FDE68A;font-weight:bold" href="${escapeHtmlV485A(directAppUrl)}">فتح التطبيق</a></p>
+  <p><a style="color:#93C5FD;font-weight:bold" href="${escapeHtmlV485A(storeTarget)}">تحميل التطبيق من Google Play</a></p>
+</body>
+</html>`);
 });
+
 
 app.get("/invite/resolve", (req, res) => {
   const code = normalizeInviteCodeV138J(req.query.code);
@@ -5573,11 +5674,13 @@ io.on("connection", (socket) => {
   });
 
   connectedUserSocketsV137O.set(String(socket.user.id), socket.id);
+  emitOwnerOnlineStatsV484A(); // V484A_OWNER_ONLINE_AFTER_CONNECT
   socket.on("disconnect", () => {
     removeVoiceCountryPresenceForSocketV475F2(socket, "disconnect"); // V475F2_COUNTRY_ROOM_PRESENCE_CLEANUP_SAFE
     clearVoiceCountryVoiceStateV475E1(socket, socket.voiceCountryCodeV475B); // V475E1_COUNTRY_ROOM_MIC_STATE_SAFE
     leaveVoiceCountryRoomV475B(socket, "disconnect"); // V475B_COUNTRY_ROOMS_PRESENCE_REAL_SAFE
     if (connectedUserSocketsV137O.get(String(socket.user.id)) === socket.id) connectedUserSocketsV137O.delete(String(socket.user.id));
+    emitOwnerOnlineStatsV484A(); // V484A_OWNER_ONLINE_AFTER_DISCONNECT
   });
   
     // V138D: تم إيقاف منحة المليون نهائيًا. الحساب الجديد يبدأ بـ 10000 فقط.
