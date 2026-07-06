@@ -308,6 +308,28 @@ app.get("/app-config", (req, res) => {
       message: "تم تحسين تجربة التطبيق.", // V478R3_SERVER_PLAYER_NOISE_CLEANUP_SAFE
       showBadgeOnRefreshButton: true
     },
+    // V492C_REMOTE_UPDATE_BUTTON_CONTROLS_SAFE: يتحكم بها زر تحديث البيانات بعد النشر بدون APK جديد.
+    giftRemoteControlV492C: {
+      enabled: true,
+      baseUrl: "https://ana-alafdal-server.onrender.com/gift-videos-v492a",
+      giftVideosEnabled: true,
+      disableAllGiftVideos: false,
+      hideLoadingText: true,
+      hideErrorText: false,
+      disabledGiftTypes: [],
+      files: {
+        heart: "royal_heart_v492a.mp4",
+        rose: "royal_rose_v492a.mp4",
+        lion: "royal_lion_v492a.mp4",
+        car: "super_car_v492a.mp4",
+        crown: "royal_crown_v492a.mp4",
+        horse: "royal_horse_v492a.mp4",
+        wolf: "royal_wolf_v492a.mp4",
+        fireworks: "royal_fireworks_v492a.mp4"
+      },
+      giftErrorText: "تعذر تشغيل فيديو الهدية مؤقتًا",
+      lionGiftErrorText: "تعذر تشغيل فيديو هدية الأسد مؤقتًا"
+    },
     features: {
       domino: true,
       chess: true,
