@@ -215,6 +215,28 @@ app.use(cors({
   credentials: false
 }));
 app.use(globalRateLimitV416A);
+
+// V492A_REMOTE_GIFT_VIDEO_SAFE: serve gift videos as HTTPS files from Render
+app.use(
+  "/gift-videos-v492a",
+  express.static(path.join(__dirname, "../public/gift-videos-v492a"), {
+    setHeaders: (res) => {
+      res.setHeader("Content-Type", "video/mp4");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+    },
+  })
+);
+
+app.get("/gift-videos-v492a-health", (_req, res) => {
+  res.json({
+    ok: true,
+    marker: "V492A_REMOTE_GIFT_VIDEO_SAFE",
+    base: "/gift-videos-v492a",
+  });
+});
+
 app.use(express.json({ limit: "35mb" }));
 const UPLOADS_DIR_V154 = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(UPLOADS_DIR_V154, { recursive: true });
