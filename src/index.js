@@ -320,7 +320,7 @@ app.get("/app-config", (req, res) => {
       files: {
         heart: "royal_heart_v492a.mp4",
         rose: "royal_rose_v492a.mp4",
-        lion: "royal_lion_v492a.mp4",
+        lion: "royal_lion_15s_v492d.mp4",
         car: "super_car_v492a.mp4",
         crown: "royal_crown_v492a.mp4",
         horse: "royal_horse_v492a.mp4",
