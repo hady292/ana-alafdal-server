@@ -315,6 +315,7 @@ app.get("/app-config", (req, res) => {
       giftVideosEnabled: true,
       disableAllGiftVideos: false,
       hideLoadingText: true,
+      hideLoadingBox: true, // V493A_CONTROL_CENTER_CORE_SAFE
       hideErrorText: false,
       disabledGiftTypes: [],
       files: {
@@ -329,6 +330,49 @@ app.get("/app-config", (req, res) => {
       },
       giftErrorText: "تعذر تشغيل فيديو الهدية مؤقتًا",
       lionGiftErrorText: "تعذر تشغيل فيديو هدية الأسد مؤقتًا"
+    },
+    // V493A_CONTROL_CENTER_CORE_SAFE: مركز تحكم عام يطبقه زر تحديث البيانات في APK القادم.
+    controlCenterV493: {
+      enabled: true,
+      version: 1,
+      hiddenUiKeys: [],
+      disabledFeatureKeys: [],
+      textOverrides: {
+        "updateData.title": "تحديث البيانات",
+        "updateData.successMessage": "تم تحديث بيانات التطبيق بنجاح ✅",
+        "updateData.failedMessage": "تعذر تحديث البيانات الآن. تأكد من اتصال السيرفر ثم حاول مرة أخرى.",
+        "maintenance.title": "وضع الصيانة",
+        "maintenance.message": "التطبيق تحت الصيانة مؤقتًا.",
+        "forceUpdate.title": "تحديث مطلوب",
+        "forceUpdate.message": "يرجى تحديث التطبيق من Google Play.",
+        "feature.disabledTitle": "الميزة غير متاحة",
+        "subscriptions.vip.pageTitle": "👑 اشتراكات أنا الأفضل",
+        "subscriptions.vip.monthlyPlansTitle": "الخطط الشهرية",
+        "subscriptions.vip.disabledTitle": "الاشتراك غير متاح",
+        "subscriptions.vip.disabledMessage": "الاشتراكات غير متاحة مؤقتًا. اضغط تحديث البيانات لاحقًا.",
+        "gifts.boxTitle": "🎁 صندوق الهدايا",
+        "buttons.close": "إغلاق",
+        "ads.bannerTitle.home": "إعلان",
+        "ads.bannerTitle.lobby": "إعلان اللوبي",
+        "ads.bannerTitle.store": "إعلان المتجر",
+        "ads.bannerTitle.privateChat": "إعلان المحادثة"
+      },
+      buttonOverrides: {},
+      messages: {},
+      ads: {
+        banner: true,
+        interstitial: true,
+        rewarded: true,
+        postInterstitial: true,
+        privateChatInterstitial: true
+      },
+      subscriptions: {
+        vipPurchaseEnabled: true
+      },
+      gifts: {
+        hideLoadingBox: true
+      },
+      games: {}
     },
     features: {
       domino: true,
