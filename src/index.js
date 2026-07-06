@@ -6571,8 +6571,30 @@ socket.emit("rooms:list", roomList());
     const room = rooms.get(String(roomId || ""));
     if (!room) return socket.emit("error:message", "ROOM_NOT_FOUND");
 
-    const sender = (room.players || []).find((p) => String(p.id) === String(socket.user.id));
-    if (!sender) return socket.emit("error:message", "NOT_IN_ROOM");
+    // V489A_GIFT_NOT_IN_ROOM_BOT_REJOIN_SAFE:
+    // أحيانًا في غرف البوت/بعد إعادة التثبيت يكون اللاعب ظاهرًا بالاسم في الغرفة لكن id/socket القديم لا يطابق الجلسة الحالية.
+    // نسمح بإعادة ربط آمنة إذا كان اللاعب غير بوت واسمه مطابق لاسم الحساب الحالي، بدل ظهور NOT_IN_ROOM.
+    let sender = (room.players || []).find((p) => String(p.id) === String(socket.user.id));
+    if (!sender) {
+      const safeUsernameV489A = String(socket.user?.username || "").trim().toLowerCase();
+      const safeUserIdV489A = String(socket.user?.id || "");
+      const fallbackSenderV489A = (room.players || []).find((p) => {
+        const pid = String(p?.id || "");
+        const pname = String(p?.username || p?.name || "").trim().toLowerCase();
+        return pid && !isBotIdV136IK(pid) && safeUsernameV489A && pname === safeUsernameV489A;
+      });
+
+      if (fallbackSenderV489A) {
+        fallbackSenderV489A.id = safeUserIdV489A;
+        fallbackSenderV489A.username = String(socket.user?.username || fallbackSenderV489A.username || "لاعب");
+        fallbackSenderV489A.socketId = socket.id;
+        sender = fallbackSenderV489A;
+      }
+    }
+
+    if (!sender) {
+      return socket.emit("error:message", "أعد دخول الغرفة ثم أرسل الهدية مرة ثانية");
+    }
     if (socketCooldownV416A(socket, `gift_send_${room.id}`, 4500)) return;
 
     const receiver = (room.players || []).find((p) => String(p.id) === String(toUserId));
