@@ -215,28 +215,6 @@ app.use(cors({
   credentials: false
 }));
 app.use(globalRateLimitV416A);
-
-// V492A_REMOTE_GIFT_VIDEO_SAFE: serve gift videos as HTTPS files from Render
-app.use(
-  "/gift-videos-v492a",
-  express.static(path.join(__dirname, "../public/gift-videos-v492a"), {
-    setHeaders: (res) => {
-      res.setHeader("Content-Type", "video/mp4");
-      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-      res.setHeader("Accept-Ranges", "bytes");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-    },
-  })
-);
-
-app.get("/gift-videos-v492a-health", (_req, res) => {
-  res.json({
-    ok: true,
-    marker: "V492A_REMOTE_GIFT_VIDEO_SAFE",
-    base: "/gift-videos-v492a",
-  });
-});
-
 app.use(express.json({ limit: "35mb" }));
 const UPLOADS_DIR_V154 = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(UPLOADS_DIR_V154, { recursive: true });
@@ -250,6 +228,100 @@ app.get("/app-ads.txt", (req, res) => {
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.send("google.com, pub-6608880133186542, DIRECT, f08c47fec0942fa0\n");
 });
+
+
+// V494C_R3_APP_CONFIG_MERGE_SAFE_START
+// يضيف تحكم شامل فوق /app-config بدون كسر الإعدادات القديمة.
+app.use("/app-config", (req, res, next) => {
+  const originalJsonV494C = res.json.bind(res);
+
+  res.json = (body) => {
+    const oldBodyV494C = body && typeof body === "object" ? body : {};
+
+    const durationsV494C = {
+      heart: 5000,
+      rose: 5000,
+      royalLion8: 8000,
+      legendLion15: 15000,
+      car: 15000,
+      fireworks: 15000,
+      wolf: 15000,
+      horse: 15000,
+      crown: 15000
+    };
+
+    const mergedV494C = {
+      ...oldBodyV494C,
+
+      updateDataMasterV494C: true,
+
+      durationsMsV494C: durationsV494C,
+      giftDurationsMsV494C: durationsV494C,
+
+      giftRemoteControlV492C: {
+        ...((oldBodyV494C && oldBodyV494C.giftRemoteControlV492C) || {}),
+        durationsMs: durationsV494C,
+        giftDurationsMs: durationsV494C
+      },
+
+      featuresV494C: {
+        billiards: true,
+        billiards2: true,
+        billiards4: true,
+        carrom: true,
+        carrom2: true,
+        carrom4: true,
+        domino: true,
+        domino2: true,
+        domino4Teams: true,
+        domino4Individual: true,
+        chess: true,
+        voiceCouncil: true,
+        gifts: true,
+        ads: true,
+        vipSubscriptions: true,
+        ...((oldBodyV494C && oldBodyV494C.featuresV494C) || {})
+      },
+
+      disabledFeatureKeysV494C: oldBodyV494C.disabledFeatureKeysV494C || [],
+
+      gameControlsV494C: {
+        billiards: { enabled: true, message: "البلياردو متاح الآن" },
+        billiards2: { enabled: true, message: "بلياردو فردي متاح الآن" },
+        billiards4: { enabled: true, message: "بلياردو 4 لاعبين متاح الآن" },
+        carrom: { enabled: true, message: "الكيرم متاح الآن" },
+        carrom2: { enabled: true, message: "كيرم فردي متاح الآن" },
+        carrom4: { enabled: true, message: "كيرم 4 لاعبين متاح الآن" },
+        domino: { enabled: true, message: "الدومينو متاح الآن" },
+        domino2: { enabled: true, message: "دومينو فردي متاح الآن" },
+        domino4Teams: { enabled: true, message: "دومينو شراكة متاح الآن" },
+        domino4Individual: { enabled: true, message: "دومينو 4 فردي متاح الآن" },
+        chess: { enabled: true, message: "الشطرنج متاح الآن" },
+        voiceCouncil: { enabled: true, message: "المجلس الصوتي متاح الآن" },
+        gifts: { enabled: true, message: "الهدايا متاحة الآن" },
+        ...((oldBodyV494C && oldBodyV494C.gameControlsV494C) || {})
+      },
+
+      updateDataCapabilitiesV494C: {
+        giftsFiles: true,
+        giftsDurations: true,
+        giftsDisable: true,
+        gamesDisable: true,
+        adsDisable: true,
+        subscriptionsDisable: true,
+        maintenance: true,
+        forceUpdate: true,
+        textOverrides: true,
+        uiHide: true
+      }
+    };
+
+    return originalJsonV494C(mergedV494C);
+  };
+
+  next();
+});
+// V494C_R3_APP_CONFIG_MERGE_SAFE_END
 
 app.get("/app-config", (req, res) => {
   res.json({
@@ -307,29 +379,6 @@ app.get("/app-config", (req, res) => {
       title: "✨ تحديث جديد",
       message: "تم تحسين تجربة التطبيق.", // V478R3_SERVER_PLAYER_NOISE_CLEANUP_SAFE
       showBadgeOnRefreshButton: true
-    },
-    // V492C_REMOTE_UPDATE_BUTTON_CONTROLS_SAFE: يتحكم بها زر تحديث البيانات بعد النشر بدون APK جديد.
-    giftRemoteControlV492C: {
-      enabled: true,
-      baseUrl: "https://ana-alafdal-server.onrender.com/gift-videos-v492a",
-      giftVideosEnabled: true,
-      disableAllGiftVideos: false,
-      hideLoadingText: true,
-      hideLoadingBox: true, // V493A_CONTROL_CENTER_CORE_SAFE
-      hideErrorText: false,
-      disabledGiftTypes: [],
-      files: {
-        heart: "royal_heart_v492a.mp4",
-        rose: "royal_rose_v492a.mp4",
-        lion: "royal_lion_15s_v492d.mp4",
-        car: "super_car_v492a.mp4",
-        crown: "royal_crown_v492a.mp4",
-        horse: "royal_horse_v492a.mp4",
-        wolf: "royal_wolf_v492a.mp4",
-        fireworks: "royal_fireworks_v492a.mp4"
-      },
-      giftErrorText: "تعذر تشغيل فيديو الهدية مؤقتًا",
-      lionGiftErrorText: "تعذر تشغيل فيديو هدية الأسد مؤقتًا"
     },
     // V493A_CONTROL_CENTER_CORE_SAFE: مركز تحكم عام يطبقه زر تحديث البيانات في APK القادم.
     controlCenterV493: {
@@ -6659,30 +6708,8 @@ socket.emit("rooms:list", roomList());
     const room = rooms.get(String(roomId || ""));
     if (!room) return socket.emit("error:message", "ROOM_NOT_FOUND");
 
-    // V489A_GIFT_NOT_IN_ROOM_BOT_REJOIN_SAFE:
-    // أحيانًا في غرف البوت/بعد إعادة التثبيت يكون اللاعب ظاهرًا بالاسم في الغرفة لكن id/socket القديم لا يطابق الجلسة الحالية.
-    // نسمح بإعادة ربط آمنة إذا كان اللاعب غير بوت واسمه مطابق لاسم الحساب الحالي، بدل ظهور NOT_IN_ROOM.
-    let sender = (room.players || []).find((p) => String(p.id) === String(socket.user.id));
-    if (!sender) {
-      const safeUsernameV489A = String(socket.user?.username || "").trim().toLowerCase();
-      const safeUserIdV489A = String(socket.user?.id || "");
-      const fallbackSenderV489A = (room.players || []).find((p) => {
-        const pid = String(p?.id || "");
-        const pname = String(p?.username || p?.name || "").trim().toLowerCase();
-        return pid && !isBotIdV136IK(pid) && safeUsernameV489A && pname === safeUsernameV489A;
-      });
-
-      if (fallbackSenderV489A) {
-        fallbackSenderV489A.id = safeUserIdV489A;
-        fallbackSenderV489A.username = String(socket.user?.username || fallbackSenderV489A.username || "لاعب");
-        fallbackSenderV489A.socketId = socket.id;
-        sender = fallbackSenderV489A;
-      }
-    }
-
-    if (!sender) {
-      return socket.emit("error:message", "أعد دخول الغرفة ثم أرسل الهدية مرة ثانية");
-    }
+    const sender = (room.players || []).find((p) => String(p.id) === String(socket.user.id));
+    if (!sender) return socket.emit("error:message", "NOT_IN_ROOM");
     if (socketCooldownV416A(socket, `gift_send_${room.id}`, 4500)) return;
 
     const receiver = (room.players || []).find((p) => String(p.id) === String(toUserId));
