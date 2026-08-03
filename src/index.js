@@ -216,6 +216,7 @@ app.use(cors({
 }));
 app.use(globalRateLimitV416A);
 app.use(express.json({ limit: "35mb" }));
+app.use(express.static(path.join(__dirname, "..", "public")));
 const UPLOADS_DIR_V154 = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(UPLOADS_DIR_V154, { recursive: true });
 app.use("/uploads", express.static(UPLOADS_DIR_V154));
