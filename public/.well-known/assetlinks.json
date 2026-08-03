@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.hadiapps.anaalafdal",
+      "sha256_cert_fingerprints": [
+        "1DC368F4BFFD69B5D52B923C8198B3B44AF2711F7FFB9B9B7F6B11A18B9F8850"
+      ]
+    }
+  }
+]
+
