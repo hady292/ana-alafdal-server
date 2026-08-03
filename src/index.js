@@ -7445,6 +7445,16 @@ socket.emit("rooms:list", roomList());
   });
 });
 
+// V486_INVITE_LINK_ROUTE_SAFE
+app.get("/invite/:code", (req, res) => {
+  res.json({
+    ok: true,
+    app: "أنا الأفضل",
+    inviteCode: req.params.code,
+    message: "افتح التطبيق لقبول الدعوة"
+  });
+});
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log("============================================");
   console.log("✅ Ana Alafdal server is running");
